@@ -52,6 +52,13 @@ Tab Sense does not proxy provider requests. API keys and sanitized tab metadata 
 
 Tab Sense does not inject content scripts or execute remotely hosted code.
 
+## Incognito Access
+
+Chrome requires users to grant Incognito access explicitly from the extension's details page.
+When that access is enabled, Tab Sense uses the same provider profiles, API keys, and preferences
+as the regular browser context. Tab operations remain limited to the current window, but running
+AI grouping in an Incognito window sends the tab metadata described above to the selected provider.
+
 ## Data Sharing, Analytics, and Advertising
 
 Tab Sense does not sell user data, run analytics, display advertising, or share data with the extension author. Data is disclosed only to the AI endpoint explicitly configured and invoked by the user.

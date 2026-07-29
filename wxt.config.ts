@@ -9,7 +9,7 @@ export default defineConfig({
     description: '__MSG_extensionDescription__',
     default_locale: 'en',
     minimum_chrome_version: '116',
-    incognito: 'not_allowed',
+    incognito: 'spanning',
     icons: {
       16: 'icon/16.png',
       32: 'icon/32.png',
