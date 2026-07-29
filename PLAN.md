@@ -12,7 +12,9 @@
   - Every profile has a stable ID, user-defined name, protocol (`OpenAI`, `Anthropic`, `Gemini`, or `OpenAI-compatible`), Base URL, API key, refreshed model list, and selected model.
   - OpenAI, Anthropic, and Gemini profiles accept custom Base URLs in addition to their official defaults; endpoint paths are appended according to the selected protocol.
   - Display saved profiles in a selector and persist the active profile and each profile's selected model for quick switching.
+  - Label the OpenAI protocol variants as **OpenAI Responses** and **OpenAI Completions** so their request formats are clear, while preserving user-defined profile names and migrating only legacy built-in names.
   - Support creating, updating, selecting, and deleting profiles while never returning stored API keys to extension pages.
+  - Start new installations with no saved provider profiles, require users to add every provider explicitly, show a clear empty state in settings, and allow the final saved profile to be deleted.
 - Make operation state background-owned and observable so reopening the popup during a running operation keeps all conflicting mutation actions, especially **Group Tabs with AI**, disabled.
 - Show the same localized in-progress message immediately when a popup action starts and when a reopened popup discovers that background operation, replacing it only after the final result is available.
 - Keep the popup compact by rendering the deduplicate-before-grouping state as a small badge inside the **Group Tabs with AI** button instead of a separate notice, and present **Ungroup All Tabs** and **Undo Last Action** as smaller, visually subdued secondary controls.
@@ -38,7 +40,12 @@
   - Profile-specific API keys, models, and refreshed model lists stored independently in `chrome.storage.local`.
   - Saved keys displayed only as a saved-state indicator with an empty replacement field.
   - Explicit model loading using the API key; key or Base URL changes invalidate the current model selection.
+  - A model connectivity test button enabled only after an API key and model are saved; run one bounded generation request through the selected protocol, report success or sanitized failure inline, and never mutate browser tabs.
   - Custom Base URLs for every protocol using HTTPS or loopback HTTP on `localhost`, `127.0.0.1`, or `::1`; reject credentials, query strings, fragments, and other HTTP hosts.
+  - A compact, responsive settings layout that keeps the provider selector, shortcut-settings entry, workflow preference, and primary actions visible without unnecessary page scrolling on common desktop viewports.
+  - Top-align the API-key and model field rows so the saved-key indicator never shifts the model selector or connectivity-test button below the adjacent API-key controls.
+  - Fixed toast feedback for save, model refresh, connectivity-test, profile, and validation results so messages remain visible regardless of the current scroll position.
+- Keep the popup navigation minimal: expose settings as an accessible gear icon in the top-right corner and remove the shortcut-settings entry from the popup.
 - Duplicate removal operates on the captured current normal window:
   - Compare complete, non-empty URL strings exactly; query strings and fragments remain significant.
   - Include already-grouped tabs in duplicate detection.
@@ -58,9 +65,21 @@
 - Route API access through provider adapters:
   - OpenAI: list `/v1/models`, generate through `/v1/responses`.
   - Anthropic: paginate `/v1/models`, generate through `/v1/messages`.
+  - Treat custom Anthropic Base URLs like the official Anthropic SDK: append `/v1` before `models` and `messages`, while accepting legacy saved Base URLs that already end in `/v1` without duplicating the version segment.
+  - If an Anthropic-compatible service returns `404` for its Models API, retry model discovery once through the sibling OpenAI-format `/models` catalog using Bearer authentication; continue to use Anthropic Messages for grouping.
   - Gemini: paginate `/v1beta/models`, retain models supporting `generateContent`, and call `generateContent`.
   - OpenAI-compatible: append `/models` and `/chat/completions` to the configured API root and use Bearer authentication.
   - Require JSON-only output, accept raw or fenced JSON, validate before mutation, make no automatic billable retry, and sanitize authentication, rate-limit, network, and malformed-response errors.
+- Automate tagged GitHub releases:
+  - Trigger a release workflow whenever a tag is pushed.
+  - Require the tag version, with an optional leading `v`, to match `package.json` before packaging.
+  - Install the pinned pnpm version on Node.js 22, run linting, type checking, and the full test suite, then build and integrity-check the Chrome ZIP.
+  - Create a GitHub Release with generated notes and the ZIP attached, or replace the ZIP safely when a release workflow is rerun for the same tag.
+  - Grant only repository-content write permission to the workflow and authenticate with the built-in `GITHUB_TOKEN`.
+- Run pull-request tests in GitHub Actions:
+  - Trigger for pull-request creation, reopening, and new commits through the standard `pull_request` event.
+  - Check out the pull-request revision with read-only repository-content permission, install the pinned pnpm version on Node.js 22, restore the pnpm cache, and install dependencies from the lockfile.
+  - Run `pnpm test` as the required verification command without granting write permissions or exposing secrets.
 - Use system notifications for shortcut results and errors; popup-triggered actions report inline. Add original extension icons at required Chrome sizes.
 
 ## Interfaces and Data Flow
@@ -87,15 +106,26 @@
 - Unit-test URL redaction, prompt construction, JSON extraction, response validation, singleton handling, stale tabs, deterministic colors, concurrency, and rollback.
 - Test existing-group context construction, existing-group priority instructions, valid and invalid existing group IDs, singleton reuse, merging repeated existing-group assignments, stale-group fallback, metadata preservation, and undo of tabs added to an existing group.
 - Mock HTTP and test every provider's authentication, pagination, model normalization, generation parsing, custom Base URL validation, optional permissions, and sanitized errors without real credentials.
+- Test bounded connectivity requests for every provider protocol, including endpoint, authentication, selected model, output limits, success, and sanitized failure behavior.
+- Test Anthropic endpoint construction for both SDK-style Base URLs without `/v1` and legacy Base URLs that already include `/v1`.
+- Test the bounded Anthropic-model-discovery fallback on `404`, including sibling URL derivation, Bearer authentication, model normalization, and no fallback for other provider errors.
 - Test per-profile storage isolation, preference persistence and defaulting, key redaction, English and Simplified Chinese UI states, model refresh, disabled actions, shortcut routing, inline status, and notifications.
+- Test that model connectivity is disabled until both key and model are saved, then routes through the background and reports progress, success, or failure without tab mutations.
+- Test fixed options-page toast feedback, the high-position shortcut-settings entry, compact responsive layout hooks, and popup navigation containing only an accessible top-right settings icon.
+- Test API-key and model field alignment when the saved-key indicator is present.
+- Validate the release workflow syntax, tag filter, least-privilege permissions, version guard, verification commands, ZIP integrity check, and GitHub Release upload path.
+- Validate the pull-request workflow syntax, event trigger, read-only permissions, pinned toolchain setup, frozen dependency install, and `pnpm test` command.
 - Test that the popup shell does not impose a fixed minimum height after compact actions are rendered.
 - Test named profile creation, protocol-specific custom Base URLs, active-profile/model persistence, profile switching and deletion, and migration from the initial per-protocol settings shape.
+- Test empty initial provider storage, first-profile creation and selection, deleting the final profile, and the settings-page empty state.
+- Test the OpenAI Responses and OpenAI Completions protocol labels plus migration of legacy built-in profile names without changing custom names.
 - Test popup reopening against a running background operation, undo record replacement and persistence, grouping undo, duplicate-tab recreation, partial restore failures, and ungroup-all with undo.
 - Finish with `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`, and `pnpm zip`, then manually load the unpacked build in Chrome and verify both popup actions, both shortcuts, settings, notifications, preprocessing modes, and tab-group behavior.
 
 ## Assumptions and Acceptance
 
 - Support Chrome 116 and later; UI defaults to English and switches to Simplified Chinese through Chrome localization.
+- Publish this initial accumulated feature set as package version `0.1.0`; keep tag examples and generated artifact names aligned with that version.
 - All repository documentation, including `PLAN.md`, `README.md`, and `PRIVACY.md`, is written only in English. Chinese text appears only in localization resources.
 - Document that API keys are stored locally but are not protected by an encrypted vault, and that AI grouping sends titles and redacted URLs directly to the selected provider.
 - The repository initially had no commits or remote. Recheck the remote and run `git pull` before implementation only if one has been configured. Any requested commits must use `git commit -s`.

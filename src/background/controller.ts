@@ -3,6 +3,7 @@ import type {
   OperationKind,
   RuntimeRequest,
   RuntimeResponse,
+  ProviderConnectionTestResult,
   UndoStatus,
 } from './messages';
 import type {
@@ -35,6 +36,7 @@ export interface RuntimeControllerDependencies {
   }): Promise<PublicSettings>;
   saveWorkflowPreference(enabled: boolean): Promise<PublicSettings>;
   setActiveProviderProfile(profileId: string): Promise<PublicSettings>;
+  testProviderModel(profileId: string): Promise<ProviderConnectionTestResult>;
   undoLastAction(): Promise<UndoExecutionResult>;
   ungroupAll(windowId: number): Promise<UngroupAllResult>;
 }
@@ -116,6 +118,11 @@ export class RuntimeController {
         case 'save-model':
           return {
             data: await this.dependencies.saveModel(request.profileId, request.modelId),
+            ok: true,
+          };
+        case 'test-provider-model':
+          return {
+            data: await this.dependencies.testProviderModel(request.profileId),
             ok: true,
           };
         case 'close-duplicates': {

@@ -57,12 +57,13 @@ export function OptionsApp({ client = runtimeClient, t = translate }: OptionsApp
     setProviderId(profile.providerId);
   }, [profile]);
 
-  if (!settings || !profile) {
-    return <main className="settings-shell">{status || t('loading')}</main>;
-  }
-
-  const currentSettings = settings;
-  const currentProfile = profile;
+  useEffect(() => {
+    if (!status || busy) {
+      return;
+    }
+    const timeout = globalThis.setTimeout(() => setStatus(''), 4500);
+    return () => globalThis.clearTimeout(timeout);
+  }, [busy, status]);
 
   async function applySettingsRequest(
     request: Parameters<UiClient['request']>[0],
@@ -78,15 +79,6 @@ export function OptionsApp({ client = runtimeClient, t = translate }: OptionsApp
     return response.data;
   }
 
-  async function selectProfile(profileId: string): Promise<void> {
-    setStatus('');
-    try {
-      await applySettingsRequest({ profileId, type: 'set-active-provider-profile' });
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Unknown error');
-    }
-  }
-
   async function addProfile(): Promise<void> {
     setStatus('');
     try {
@@ -96,6 +88,65 @@ export function OptionsApp({ client = runtimeClient, t = translate }: OptionsApp
         type: 'create-provider-profile',
       });
       setStatus(t('providerCreated'));
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Unknown error');
+    }
+  }
+
+  if (!settings) {
+    return <main className="settings-shell">{status || t('loading')}</main>;
+  }
+
+  const currentSettings = settings;
+  const settingsHeader = (
+    <header className="settings-header">
+      <div className="settings-identity">
+        <div className="settings-brand" aria-hidden="true">
+          T
+        </div>
+        <div>
+          <h1>{t('settingsTitle')}</h1>
+          <p>{t('settingsSubtitle')}</p>
+        </div>
+      </div>
+      <button className="shortcut-button" onClick={() => void client.openShortcutSettings()}>
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          <path d="M4 7.5h16v9H4zM7 10h.01M10 10h.01M13 10h.01M16 10h.01M8 13.5h8" />
+        </svg>
+        <span>{t('openShortcutSettings')}</span>
+      </button>
+    </header>
+  );
+  const statusToast = status ? (
+    <p aria-live="polite" className="settings-toast" role="status">
+      {status}
+    </p>
+  ) : null;
+
+  if (!profile) {
+    return (
+      <main className="settings-shell">
+        {settingsHeader}
+
+        <section className="settings-card empty-provider-state">
+          <p>{t('noProviders')}</p>
+          <button className="secondary-button" disabled={busy} onClick={() => void addProfile()}>
+            {t('addProvider')}
+          </button>
+        </section>
+
+        <aside className="privacy-note">{t('privacyNotice')}</aside>
+        {statusToast}
+      </main>
+    );
+  }
+
+  const currentProfile = profile;
+
+  async function selectProfile(profileId: string): Promise<void> {
+    setStatus('');
+    try {
+      await applySettingsRequest({ profileId, type: 'set-active-provider-profile' });
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Unknown error');
     }
@@ -187,127 +238,154 @@ export function OptionsApp({ client = runtimeClient, t = translate }: OptionsApp
     }
   }
 
+  async function testModel(): Promise<void> {
+    setBusy(true);
+    setStatus(t('modelTestInProgress'));
+    try {
+      const response = await client.request({
+        profileId: currentProfile.id,
+        type: 'test-provider-model',
+      });
+      if (!response.ok) {
+        throw new Error(response.error);
+      }
+      setStatus(t('modelTestSuccess'));
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Unknown error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const refreshDisabled = busy || (!apiKey && !currentProfile.hasApiKey) || !baseUrl || !name.trim();
 
   return (
     <main className="settings-shell">
-      <header className="settings-header">
-        <div className="settings-brand" aria-hidden="true">
-          T
-        </div>
-        <div>
-          <h1>{t('settingsTitle')}</h1>
-          <p>{t('settingsSubtitle')}</p>
-        </div>
-      </header>
+      {settingsHeader}
 
       <section className="settings-card">
-        <div className="profile-picker">
+        <div className="settings-grid" data-testid="provider-settings-grid">
+          <div className="profile-picker grid-wide">
+            <label className="field grow-field">
+              <span>{t('savedProvider')}</span>
+              <select
+                aria-label={t('savedProvider')}
+                value={currentProfile.id}
+                onChange={(event) => void selectProfile(event.target.value)}
+              >
+                {currentSettings.profiles.map((savedProfile) => (
+                  <option key={savedProfile.id} value={savedProfile.id}>
+                    {savedProfile.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button className="secondary-button" disabled={busy} onClick={() => void addProfile()}>
+              {t('addProvider')}
+            </button>
+          </div>
+
           <label className="field grow-field">
-            <span>{t('savedProvider')}</span>
+            <span>{t('providerName')}</span>
+            <input
+              aria-label={t('providerName')}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </label>
+
+          <label className="field">
+            <span>{t('aiProvider')}</span>
             <select
-              aria-label={t('savedProvider')}
-              value={currentProfile.id}
-              onChange={(event) => void selectProfile(event.target.value)}
+              aria-label={t('aiProvider')}
+              value={providerId}
+              onChange={(event) => {
+                const nextProviderId = event.target.value as ProviderId;
+                setProviderId(nextProviderId);
+                setBaseUrl(DEFAULT_PROVIDER_BASE_URLS[nextProviderId]);
+              }}
             >
-              {currentSettings.profiles.map((savedProfile) => (
-                <option key={savedProfile.id} value={savedProfile.id}>
-                  {savedProfile.name}
+              {PROVIDER_IDS.map((id) => (
+                <option key={id} value={id}>
+                  {t(PROVIDER_MESSAGE_KEYS[id])}
                 </option>
               ))}
             </select>
           </label>
-          <button className="secondary-button" disabled={busy} onClick={() => void addProfile()}>
-            {t('addProvider')}
-          </button>
+
+          <label className="field grid-wide">
+            <span>{t('customBaseUrl')}</span>
+            <input
+              aria-label={t('customBaseUrl')}
+              type="url"
+              value={baseUrl}
+              placeholder="https://api.example.com/v1"
+              onChange={(event) => setBaseUrl(event.target.value)}
+            />
+          </label>
+
+          <div className="field">
+            <label htmlFor="provider-api-key">{t('apiKey')}</label>
+            <div className="inline-control">
+              <input
+                id="provider-api-key"
+                autoComplete="off"
+                type="password"
+                value={apiKey}
+                placeholder={currentProfile.hasApiKey ? t('replaceApiKey') : ''}
+                onChange={(event) => setApiKey(event.target.value)}
+              />
+              <button className="primary-button" disabled={refreshDisabled} onClick={refreshModels}>
+                {busy ? t('loading') : t('refreshModels')}
+              </button>
+            </div>
+            {currentProfile.hasApiKey && (
+              <small className="saved-indicator">{t('apiKeySaved')}</small>
+            )}
+          </div>
+
+          <div className="field">
+            <label htmlFor="provider-model">{t('model')}</label>
+            <div className="inline-control">
+              <select
+                id="provider-model"
+                value={currentProfile.modelId}
+                onChange={(event) => void changeModel(event.target.value)}
+              >
+                <option value="">{t('selectModel')}</option>
+                {currentProfile.models.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.displayName}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="secondary-button"
+                disabled={busy || !currentProfile.hasApiKey || !currentProfile.modelId}
+                onClick={() => void testModel()}
+              >
+                {t('testModel')}
+              </button>
+            </div>
+          </div>
+
+          <div className="provider-actions grid-wide">
+            <button
+              className="danger-button compact-danger-button"
+              disabled={busy}
+              onClick={() => void deleteProfile()}
+            >
+              {t('deleteProvider')}
+            </button>
+            <button
+              className="secondary-button"
+              disabled={busy || !name.trim() || !baseUrl}
+              onClick={() => void saveProfileFromButton()}
+            >
+              {t('saveProvider')}
+            </button>
+          </div>
         </div>
-
-        <label className="field">
-          <span>{t('providerName')}</span>
-          <input
-            aria-label={t('providerName')}
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </label>
-
-        <label className="field">
-          <span>{t('aiProvider')}</span>
-          <select
-            aria-label={t('aiProvider')}
-            value={providerId}
-            onChange={(event) => {
-              const nextProviderId = event.target.value as ProviderId;
-              setProviderId(nextProviderId);
-              setBaseUrl(DEFAULT_PROVIDER_BASE_URLS[nextProviderId]);
-            }}
-          >
-            {PROVIDER_IDS.map((id) => (
-              <option key={id} value={id}>
-                {t(PROVIDER_MESSAGE_KEYS[id])}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="field">
-          <span>{t('customBaseUrl')}</span>
-          <input
-            aria-label={t('customBaseUrl')}
-            type="url"
-            value={baseUrl}
-            placeholder="https://api.example.com/v1"
-            onChange={(event) => setBaseUrl(event.target.value)}
-          />
-        </label>
-
-        <button
-          className="secondary-button full-width-button"
-          disabled={busy || !name.trim() || !baseUrl}
-          onClick={() => void saveProfileFromButton()}
-        >
-          {t('saveProvider')}
-        </button>
-
-        <label className="field">
-          <span>{t('apiKey')}</span>
-          <input
-            aria-label={t('apiKey')}
-            autoComplete="off"
-            type="password"
-            value={apiKey}
-            placeholder={currentProfile.hasApiKey ? t('replaceApiKey') : ''}
-            onChange={(event) => setApiKey(event.target.value)}
-          />
-        </label>
-        {currentProfile.hasApiKey && <p className="saved-indicator">{t('apiKeySaved')}</p>}
-
-        <button className="primary-button" disabled={refreshDisabled} onClick={refreshModels}>
-          {busy ? t('loading') : t('refreshModels')}
-        </button>
-
-        <label className="field">
-          <span>{t('model')}</span>
-          <select
-            value={currentProfile.modelId}
-            onChange={(event) => void changeModel(event.target.value)}
-          >
-            <option value="">{t('selectModel')}</option>
-            {currentProfile.models.map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.displayName}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <button
-          className="danger-button"
-          disabled={busy || currentSettings.profiles.length === 1}
-          onClick={() => void deleteProfile()}
-        >
-          {t('deleteProvider')}
-        </button>
       </section>
 
       <section className="settings-card preference-card">
@@ -326,14 +404,7 @@ export function OptionsApp({ client = runtimeClient, t = translate }: OptionsApp
       </section>
 
       <aside className="privacy-note">{t('privacyNotice')}</aside>
-      {status && (
-        <p className="settings-status" role="status">
-          {status}
-        </p>
-      )}
-      <button className="link-button" onClick={() => void client.openShortcutSettings()}>
-        {t('openShortcutSettings')}
-      </button>
+      {statusToast}
     </main>
   );
 }

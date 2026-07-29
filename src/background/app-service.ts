@@ -5,6 +5,7 @@ import {
   createProviderProfile,
   deleteProviderProfile,
   loadActiveProviderConnection,
+  loadProviderConnection,
   loadProviderApiKey,
   loadPublicSettings,
   saveProviderModel,
@@ -33,6 +34,7 @@ import {
   listProviderModels,
   normalizeCompatibleBaseUrl,
   requestProviderGrouping,
+  testProviderConnection,
 } from '../providers/adapters';
 import type { ProviderFetch, PublicSettings } from '../providers/types';
 
@@ -72,6 +74,15 @@ export async function refreshProviderModels(
     profileId: input.profileId,
   });
   return loadPublicSettings();
+}
+
+export async function testConfiguredProviderModel(
+  profileId: string,
+  fetcher: ProviderFetch = fetch,
+): Promise<{ connected: true }> {
+  const connection = await loadProviderConnection(profileId);
+  await testProviderConnection(connection, fetcher);
+  return { connected: true };
 }
 
 export async function runConfiguredAiGrouping(windowId: number): Promise<AiGroupingWorkflowResult> {
@@ -207,6 +218,7 @@ export function createRuntimeDependencies(): RuntimeControllerDependencies {
       await setActiveProviderProfile(profileId);
       return loadPublicSettings();
     },
+    testProviderModel: testConfiguredProviderModel,
     undoLastAction,
     ungroupAll: ungroupAllAndSaveUndo,
   };

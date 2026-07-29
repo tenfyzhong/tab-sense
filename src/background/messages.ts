@@ -23,6 +23,10 @@ export interface OperationStatus {
   undo: UndoStatus;
 }
 
+export interface ProviderConnectionTestResult {
+  connected: true;
+}
+
 export type RuntimeRequest =
   | { type: 'get-settings' }
   | { type: 'get-operation-status' }
@@ -44,6 +48,7 @@ export type RuntimeRequest =
       type: 'refresh-models';
     }
   | { modelId: string; profileId: string; type: 'save-model' }
+  | { profileId: string; type: 'test-provider-model' }
   | { type: 'close-duplicates' }
   | { type: 'group-tabs' }
   | { type: 'undo-last-action' }
@@ -54,6 +59,7 @@ export type RuntimeData =
   | DuplicateExecutionResult
   | AiGroupingWorkflowResult
   | OperationStatus
+  | ProviderConnectionTestResult
   | UndoExecutionResult
   | UngroupAllResult;
 

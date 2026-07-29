@@ -17,9 +17,20 @@ describe('localization resources', () => {
       'groupedTabsResult',
       'notificationDuplicatesClosed',
       'notificationTabsGrouped',
+      'noProviders',
+      'testModel',
+      'modelTestInProgress',
+      'modelTestSuccess',
     ]) {
       expect(english).toHaveProperty(key);
       expect(simplifiedChinese).toHaveProperty(key);
     }
+  });
+
+  it('names the OpenAI protocols after the API format they use', () => {
+    expect(english.providerOpenai.message).toBe('OpenAI Responses');
+    expect(english.providerOpenaiCompatible.message).toBe('OpenAI Completions');
+    expect(simplifiedChinese.providerOpenai.message).toBe('OpenAI Responses');
+    expect(simplifiedChinese.providerOpenaiCompatible.message).toBe('OpenAI Completions');
   });
 });

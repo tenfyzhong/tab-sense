@@ -5,6 +5,7 @@ import {
   listProviderModels,
   normalizeCompatibleBaseUrl,
   requestProviderGrouping,
+  testProviderConnection,
 } from './adapters';
 import type { ProviderConnection, ProviderId } from './types';
 
@@ -134,6 +135,80 @@ describe('listProviderModels', () => {
     );
   });
 
+  it('adds the Anthropic API version to SDK-style Base URLs', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ data: [], has_more: false }));
+
+    await listProviderModels(
+      {
+        apiKey: 'deepseek-secret',
+        baseUrl: 'https://api.deepseek.com/anthropic',
+        modelId: '',
+        providerId: 'anthropic',
+      },
+      fetchMock,
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.deepseek.com/anthropic/v1/models?limit=1000',
+      expect.any(Object),
+    );
+  });
+
+  it('falls back to a sibling OpenAI model catalog when Anthropic discovery is missing', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({}, 404))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ id: 'deepseek-v4-pro' }, { id: 'deepseek-v4-flash' }],
+          object: 'list',
+        }),
+      );
+
+    const models = await listProviderModels(
+      {
+        apiKey: 'deepseek-secret',
+        baseUrl: 'https://api.deepseek.com/anthropic',
+        modelId: '',
+        providerId: 'anthropic',
+      },
+      fetchMock,
+    );
+
+    expect(models.map((model) => model.id)).toEqual(['deepseek-v4-flash', 'deepseek-v4-pro']);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://api.deepseek.com/anthropic/v1/models?limit=1000',
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'x-api-key': 'deepseek-secret' }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://api.deepseek.com/models',
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer deepseek-secret' }),
+      }),
+    );
+  });
+
+  it('does not fall back from Anthropic authentication errors', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({}, 401));
+
+    await expect(
+      listProviderModels(
+        {
+          apiKey: 'rejected-secret',
+          baseUrl: 'https://api.deepseek.com/anthropic',
+          modelId: '',
+          providerId: 'anthropic',
+        },
+        fetchMock,
+      ),
+    ).rejects.toThrow('API key was rejected');
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it('paginates Gemini models and retains generateContent support only', async () => {
     const fetchMock = vi
       .fn()
@@ -240,6 +315,28 @@ describe('requestProviderGrouping', () => {
     });
   }
 
+  it('uses the versioned Messages endpoint for an Anthropic SDK-style Base URL', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(responseByProvider.anthropic));
+
+    await requestProviderGrouping(
+      {
+        apiKey: 'deepseek-secret',
+        baseUrl: 'https://api.deepseek.com/anthropic',
+        modelId: 'deepseek-chat',
+        providerId: 'anthropic',
+      },
+      [{ id: 1, title: 'One', url: 'https://one.example/' }],
+      [],
+      'en',
+      fetchMock,
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.deepseek.com/anthropic/v1/messages',
+      expect.any(Object),
+    );
+  });
+
   it('instructs the provider to prefer existing groups and sends their context', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(input).toBeDefined();
@@ -272,5 +369,86 @@ describe('requestProviderGrouping', () => {
     expect(body.messages[0]?.content).toContain('Prefer assigning tabs to a suitable existing group');
     expect(body.messages[1]?.content).toContain('"existingGroups"');
     expect(body.messages[1]?.content).toContain('"GitHub Issues"');
+  });
+});
+
+describe('testProviderConnection', () => {
+  it.each([
+    {
+      baseUrl: 'https://api.openai.com/v1',
+      expectedUrl: 'https://api.openai.com/v1/responses',
+      headerName: 'Authorization',
+      headerValue: 'Bearer test-secret',
+      providerId: 'openai' as const,
+    },
+    {
+      baseUrl: 'https://api.deepseek.com/anthropic',
+      expectedUrl: 'https://api.deepseek.com/anthropic/v1/messages',
+      headerName: 'x-api-key',
+      headerValue: 'test-secret',
+      providerId: 'anthropic' as const,
+    },
+    {
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      expectedUrl:
+        'https://generativelanguage.googleapis.com/v1beta/models/model-1:generateContent',
+      headerName: 'x-goog-api-key',
+      headerValue: 'test-secret',
+      providerId: 'gemini' as const,
+    },
+    {
+      baseUrl: 'https://gateway.example/v1',
+      expectedUrl: 'https://gateway.example/v1/chat/completions',
+      headerName: 'Authorization',
+      headerValue: 'Bearer test-secret',
+      providerId: 'openai-compatible' as const,
+    },
+  ])('sends a bounded $providerId generation request', async (testCase) => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBeDefined();
+      expect(init).toBeDefined();
+      return jsonResponse({ accepted: true });
+    });
+
+    await testProviderConnection(
+      {
+        apiKey: 'test-secret',
+        baseUrl: testCase.baseUrl,
+        modelId: 'model-1',
+        providerId: testCase.providerId,
+      },
+      fetchMock,
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      testCase.expectedUrl,
+      expect.objectContaining({
+        headers: expect.objectContaining({ [testCase.headerName]: testCase.headerValue }),
+        method: 'POST',
+      }),
+    );
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
+    expect(body.model ?? 'model-1').toBe('model-1');
+    const outputLimit =
+      testCase.providerId === 'gemini'
+        ? (body.generationConfig as Record<string, unknown>).maxOutputTokens
+        : testCase.providerId === 'openai'
+          ? body.max_output_tokens
+          : body.max_tokens;
+    expect(outputLimit).toBe(16);
+  });
+
+  it('returns sanitized provider failures', async () => {
+    await expect(
+      testProviderConnection(
+        {
+          apiKey: 'never-show-this',
+          baseUrl: 'https://api.openai.com/v1',
+          modelId: 'model-1',
+          providerId: 'openai',
+        },
+        vi.fn(async () => jsonResponse({ leaked: 'body' }, 401)),
+      ),
+    ).rejects.toThrow('API key was rejected');
   });
 });

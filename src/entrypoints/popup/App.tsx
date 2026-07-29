@@ -171,13 +171,26 @@ export function PopupApp({ client = runtimeClient, t = translate }: PopupAppProp
   return (
     <main className="popup-shell">
       <header className="popup-header">
-        <div className="brand-mark" aria-hidden="true">
-          T
+        <div className="popup-identity">
+          <div className="brand-mark" aria-hidden="true">
+            T
+          </div>
+          <div>
+            <h1>{t('title')}</h1>
+            <p>{t('popupSubtitle')}</p>
+          </div>
         </div>
-        <div>
-          <h1>{t('title')}</h1>
-          <p>{t('popupSubtitle')}</p>
-        </div>
+        <button
+          aria-label={t('openSettings')}
+          className="settings-icon-button"
+          onClick={() => void client.openOptions()}
+          title={t('openSettings')}
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />
+            <path d="m19.4 15 .1 2.3-2.2 2.2-2.3-.1-1.6 1.6h-2.8L9 19.4l-2.3.1-2.2-2.2.1-2.3L3 13.4v-2.8L4.6 9l-.1-2.3 2.2-2.2L9 4.6 10.6 3h2.8L15 4.6l2.3-.1 2.2 2.2-.1 2.3 1.6 1.6v2.8L19.4 15Z" />
+          </svg>
+        </button>
       </header>
 
       <section className="action-stack" aria-label={t('tabActions')}>
@@ -225,25 +238,11 @@ export function PopupApp({ client = runtimeClient, t = translate }: PopupAppProp
         </button>
       </div>
 
-      {!aiReady && (
-        <button className="text-button" onClick={() => void client.openOptions()}>
-          {t('configureAi')}
-        </button>
-      )}
       {status && (
         <p className="status" role="status">
           {status}
         </p>
       )}
-
-      <footer>
-        <button className="text-button" onClick={() => void client.openOptions()}>
-          {t('openSettings')}
-        </button>
-        <button className="text-button" onClick={() => void client.openShortcutSettings()}>
-          {t('shortcuts')}
-        </button>
-      </footer>
     </main>
   );
 }

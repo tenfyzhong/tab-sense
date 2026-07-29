@@ -13,7 +13,8 @@ import {
 
 const SETTINGS_KEY = 'tabSenseSettings';
 const CREDENTIALS_KEY = 'tabSenseCredentials';
-const SETTINGS_VERSION = 2;
+const SETTINGS_VERSION = 4;
+const PREVIOUS_SETTINGS_VERSIONS = [2, 3] as const;
 
 interface StoredProviderProfile {
   baseUrl: string;
@@ -50,6 +51,11 @@ interface LegacySettings {
 const PROVIDER_NAMES: Record<ProviderId, string> = {
   anthropic: 'Anthropic',
   gemini: 'Google Gemini',
+  openai: 'OpenAI Responses',
+  'openai-compatible': 'OpenAI Completions',
+};
+
+const LEGACY_PROVIDER_NAMES: Partial<Record<ProviderId, string>> = {
   openai: 'OpenAI',
   'openai-compatible': 'OpenAI-compatible',
 };
@@ -58,15 +64,15 @@ function profileIdForProvider(providerId: ProviderId): string {
   return `${providerId}-default`;
 }
 
-function defaultProfiles(): StoredProviderProfile[] {
-  return PROVIDER_IDS.map((providerId) => ({
+function defaultProfile(providerId: ProviderId): StoredProviderProfile {
+  return {
     baseUrl: DEFAULT_PROVIDER_BASE_URLS[providerId],
     id: profileIdForProvider(providerId),
     modelId: '',
     models: [],
     name: PROVIDER_NAMES[providerId],
     providerId,
-  }));
+  };
 }
 
 function isProviderId(value: unknown): value is ProviderId {
@@ -81,7 +87,36 @@ function normalizedBaseUrl(providerId: ProviderId, baseUrl: string | undefined):
   return normalizeCompatibleBaseUrl(candidate);
 }
 
-function migrateSettings(value: unknown): StoredSettings {
+function migrateLegacyBuiltInProfileName(
+  profile: StoredProviderProfile,
+): StoredProviderProfile {
+  const legacyName = LEGACY_PROVIDER_NAMES[profile.providerId];
+  if (
+    profile.id === profileIdForProvider(profile.providerId) &&
+    legacyName !== undefined &&
+    profile.name === legacyName
+  ) {
+    return { ...profile, name: PROVIDER_NAMES[profile.providerId] };
+  }
+  return profile;
+}
+
+function isUntouchedGeneratedProfile(
+  profile: StoredProviderProfile,
+  credentials: StoredCredentials,
+): boolean {
+  return (
+    profile.id === profileIdForProvider(profile.providerId) &&
+    profile.name === PROVIDER_NAMES[profile.providerId] &&
+    profile.baseUrl === DEFAULT_PROVIDER_BASE_URLS[profile.providerId] &&
+    profile.modelId === '' &&
+    profile.models.length === 0 &&
+    profile.refreshedAt === undefined &&
+    !credentials[profile.id]
+  );
+}
+
+function migrateSettings(value: unknown, credentials: StoredCredentials): StoredSettings {
   if (
     typeof value === 'object' &&
     value !== null &&
@@ -93,20 +128,53 @@ function migrateSettings(value: unknown): StoredSettings {
     return value as unknown as StoredSettings;
   }
 
-  const legacy = (value ?? {}) as LegacySettings;
-  const profiles = defaultProfiles().map((profile) => {
-    const old = legacy.providers?.[profile.providerId];
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'version' in value &&
+    PREVIOUS_SETTINGS_VERSIONS.includes(
+      value.version as (typeof PREVIOUS_SETTINGS_VERSIONS)[number],
+    ) &&
+    'profiles' in value &&
+    Array.isArray(value.profiles)
+  ) {
+    const previous = value as unknown as Omit<StoredSettings, 'version'> & { version: 2 | 3 };
+    const profiles = previous.profiles
+      .map(migrateLegacyBuiltInProfileName)
+      .filter((profile) => !isUntouchedGeneratedProfile(profile, credentials));
     return {
-      ...profile,
-      baseUrl: normalizedBaseUrl(profile.providerId, old?.baseUrl),
-      modelId: old?.modelId ?? '',
-      models: old?.models ?? [],
-      refreshedAt: old?.refreshedAt,
+      ...previous,
+      activeProfileId: profiles.some((profile) => profile.id === previous.activeProfileId)
+        ? previous.activeProfileId
+        : (profiles[0]?.id ?? ''),
+      profiles,
+      version: SETTINGS_VERSION,
     };
+  }
+
+  const legacy = (value ?? {}) as LegacySettings;
+  const profiles = PROVIDER_IDS.flatMap((providerId) => {
+    const old = legacy.providers?.[providerId];
+    const profile = defaultProfile(providerId);
+    if (old === undefined && !credentials[profile.id]) {
+      return [];
+    }
+    return [
+      {
+        ...profile,
+        baseUrl: normalizedBaseUrl(providerId, old?.baseUrl),
+        modelId: old?.modelId ?? '',
+        models: old?.models ?? [],
+        refreshedAt: old?.refreshedAt,
+      },
+    ];
   });
-  const activeProvider = isProviderId(legacy.activeProvider) ? legacy.activeProvider : 'openai';
+  const activeProvider = isProviderId(legacy.activeProvider) ? legacy.activeProvider : undefined;
+  const requestedActiveProfileId = activeProvider ? profileIdForProvider(activeProvider) : '';
   return {
-    activeProfileId: profileIdForProvider(activeProvider),
+    activeProfileId: profiles.some((profile) => profile.id === requestedActiveProfileId)
+      ? requestedActiveProfileId
+      : (profiles[0]?.id ?? ''),
     deduplicateBeforeGrouping: legacy.deduplicateBeforeGrouping ?? false,
     profiles,
     version: SETTINGS_VERSION,
@@ -142,8 +210,8 @@ async function loadState(): Promise<{
     rawSettings !== null &&
     'version' in rawSettings &&
     rawSettings.version === SETTINGS_VERSION;
-  const settings = migrateSettings(rawSettings);
   const credentials = migrateCredentials(stored[CREDENTIALS_KEY], settingsWereCurrent);
+  const settings = migrateSettings(rawSettings, credentials);
 
   if (!settingsWereCurrent) {
     await browser.storage.local.set({
@@ -238,9 +306,6 @@ export async function saveProviderProfile(input: {
 
 export async function deleteProviderProfile(profileId: string): Promise<void> {
   const { credentials, settings } = await loadState();
-  if (settings.profiles.length === 1) {
-    throw new Error('At least one provider profile is required');
-  }
   const nextProfiles = settings.profiles.filter((profile) => profile.id !== profileId);
   if (nextProfiles.length === settings.profiles.length) {
     throw new Error('The selected provider profile no longer exists');
