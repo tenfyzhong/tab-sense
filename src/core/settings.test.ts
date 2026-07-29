@@ -18,32 +18,26 @@ describe('settings storage', () => {
     fakeBrowser.reset();
   });
 
-  it('creates safe named defaults and keeps API keys out of public settings', async () => {
+  it('starts without providers and keeps added API keys out of public settings', async () => {
     const initial = await loadPublicSettings();
 
-    expect(initial.activeProfileId).toBe('openai-default');
-    expect(initial.profiles).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          baseUrl: 'https://api.openai.com/v1',
-          hasApiKey: false,
-          id: 'openai-default',
-          name: 'OpenAI',
-          providerId: 'openai',
-        }),
-      ]),
-    );
+    expect(initial).toMatchObject({ activeProfileId: '', profiles: [] });
+
+    const profile = await createProviderProfile({
+      name: 'Work OpenAI',
+      providerId: 'openai',
+    });
 
     await saveRefreshedProvider({
       apiKey: 'openai-secret',
       baseUrl: 'https://openai.example/v1',
       models: [{ displayName: 'Model One', id: 'model-1' }],
-      profileId: 'openai-default',
+      profileId: profile.id,
     });
-    await saveProviderModel('openai-default', 'model-1');
+    await saveProviderModel(profile.id, 'model-1');
 
     const publicSettings = await loadPublicSettings();
-    expect(publicSettings.profiles.find((profile) => profile.id === 'openai-default')).toMatchObject({
+    expect(publicSettings.profiles.find((candidate) => candidate.id === profile.id)).toMatchObject({
       baseUrl: 'https://openai.example/v1',
       hasApiKey: true,
       modelId: 'model-1',
@@ -96,37 +90,40 @@ describe('settings storage', () => {
 
     await deleteProviderProfile(profile.id);
     const afterDelete = await loadPublicSettings();
-    expect(afterDelete.profiles.some((candidate) => candidate.id === profile.id)).toBe(false);
-    expect(afterDelete.activeProfileId).not.toBe(profile.id);
+    expect(afterDelete).toMatchObject({ activeProfileId: '', profiles: [] });
   });
 
   it('invalidates models only when the protocol or Base URL changes', async () => {
+    const profile = await createProviderProfile({
+      name: 'OpenAI',
+      providerId: 'openai',
+    });
     await saveRefreshedProvider({
       apiKey: 'secret',
       baseUrl: 'https://api.openai.com/v1',
       models: [{ displayName: 'Model One', id: 'model-1' }],
-      profileId: 'openai-default',
+      profileId: profile.id,
     });
-    await saveProviderModel('openai-default', 'model-1');
+    await saveProviderModel(profile.id, 'model-1');
 
     await saveProviderProfile({
       baseUrl: 'https://api.openai.com/v1',
       name: 'Renamed OpenAI',
-      profileId: 'openai-default',
+      profileId: profile.id,
       providerId: 'openai',
     });
     expect(
-      (await loadPublicSettings()).profiles.find((profile) => profile.id === 'openai-default'),
+      (await loadPublicSettings()).profiles.find((candidate) => candidate.id === profile.id),
     ).toMatchObject({ modelId: 'model-1', name: 'Renamed OpenAI' });
 
     await saveProviderProfile({
       baseUrl: 'https://gateway.example/v1',
       name: 'Renamed OpenAI',
-      profileId: 'openai-default',
+      profileId: profile.id,
       providerId: 'openai',
     });
     expect(
-      (await loadPublicSettings()).profiles.find((profile) => profile.id === 'openai-default'),
+      (await loadPublicSettings()).profiles.find((candidate) => candidate.id === profile.id),
     ).toMatchObject({ modelId: '', models: [] });
   });
 
@@ -161,5 +158,96 @@ describe('settings storage', () => {
 
     await saveWorkflowPreference(false);
     expect((await loadPublicSettings()).deduplicateBeforeGrouping).toBe(false);
+  });
+
+  it('renames legacy built-in OpenAI profiles without changing custom names', async () => {
+    await fakeBrowser.storage.local.set({
+      tabSenseCredentials: { 'openai-default': 'saved-secret' },
+      tabSenseSettings: {
+        activeProfileId: 'openai-default',
+        deduplicateBeforeGrouping: false,
+        profiles: [
+          {
+            baseUrl: 'https://api.openai.com/v1',
+            id: 'openai-default',
+            modelId: '',
+            models: [],
+            name: 'OpenAI',
+            providerId: 'openai',
+          },
+          {
+            baseUrl: 'https://gateway.example/v1',
+            id: 'openai-compatible-default',
+            modelId: '',
+            models: [],
+            name: 'OpenAI-compatible',
+            providerId: 'openai-compatible',
+          },
+          {
+            baseUrl: 'https://work.example/v1',
+            id: 'openai-work',
+            modelId: '',
+            models: [],
+            name: 'Work OpenAI',
+            providerId: 'openai',
+          },
+        ],
+        version: 2,
+      },
+    });
+
+    const migrated = await loadPublicSettings();
+    expect(migrated.profiles.map(({ id, name }) => ({ id, name }))).toEqual([
+      { id: 'openai-default', name: 'OpenAI Responses' },
+      { id: 'openai-compatible-default', name: 'OpenAI Completions' },
+      { id: 'openai-work', name: 'Work OpenAI' },
+    ]);
+    expect((await fakeBrowser.storage.local.get('tabSenseSettings')).tabSenseSettings).toMatchObject({
+      version: 4,
+    });
+  });
+
+  it('removes only untouched generated profiles when upgrading current settings', async () => {
+    await fakeBrowser.storage.local.set({
+      tabSenseCredentials: { 'anthropic-default': 'configured-secret' },
+      tabSenseSettings: {
+        activeProfileId: 'openai-default',
+        deduplicateBeforeGrouping: false,
+        profiles: [
+          {
+            baseUrl: 'https://api.openai.com/v1',
+            id: 'openai-default',
+            modelId: '',
+            models: [],
+            name: 'OpenAI Responses',
+            providerId: 'openai',
+          },
+          {
+            baseUrl: 'https://api.anthropic.com/v1',
+            id: 'anthropic-default',
+            modelId: '',
+            models: [],
+            name: 'Anthropic',
+            providerId: 'anthropic',
+          },
+          {
+            baseUrl: 'https://work.example/v1',
+            id: 'work-openai',
+            modelId: '',
+            models: [],
+            name: 'Work OpenAI',
+            providerId: 'openai',
+          },
+        ],
+        version: 3,
+      },
+    });
+
+    const migrated = await loadPublicSettings();
+    expect(migrated.activeProfileId).toBe('anthropic-default');
+    expect(migrated.profiles.map((profile) => profile.id)).toEqual([
+      'anthropic-default',
+      'work-openai',
+    ]);
   });
 });

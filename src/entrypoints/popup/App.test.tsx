@@ -134,10 +134,28 @@ describe('PopupApp', () => {
   });
 
   it('disables AI grouping until the active provider profile is configured', async () => {
-    render(<PopupApp client={client(settings(false))} t={t} />);
+    const uiClient = client(settings(false));
+    render(<PopupApp client={uiClient} t={t} />);
 
     expect(await screen.findByRole('button', { name: 'Group Tabs with AI' })).toBeDisabled();
-    expect(screen.getByText('Configure AI')).toBeInTheDocument();
+    expect(screen.queryByText('Configure AI')).not.toBeInTheDocument();
+  });
+
+  it('shows only a top-right gear button for popup navigation', async () => {
+    const uiClient = client(settings(true));
+    render(<PopupApp client={uiClient} t={t} />);
+
+    const header = await screen.findByRole('banner');
+    const settingsButton = within(header).getByRole('button', { name: 'Settings' });
+    expect(settingsButton).toHaveClass('settings-icon-button');
+    expect(screen.queryByRole('button', { name: 'Shortcuts' })).not.toBeInTheDocument();
+    expect(popupStyles).toMatch(
+      /\.popup-header\s*\{[^}]*justify-content:\s*space-between/s,
+    );
+
+    fireEvent.click(settingsButton);
+    expect(uiClient.openOptions).toHaveBeenCalledOnce();
+    expect(uiClient.openShortcutSettings).not.toHaveBeenCalled();
   });
 
   it('keeps AI grouping disabled when the popup reopens during a background task', async () => {

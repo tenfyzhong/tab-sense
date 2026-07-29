@@ -7,10 +7,14 @@ Tab Sense is a Chrome extension that closes duplicate tabs and organizes ungroup
 - Close tabs whose complete URLs are exactly equal in the current window.
 - Protect every pinned tab from automatic closure.
 - Keep the active duplicate, or otherwise the leftmost duplicate, when no pinned copy exists.
-- Group ungrouped, unpinned tabs by topic with OpenAI, Anthropic, Google Gemini, or an OpenAI-compatible API.
+- Group ungrouped, unpinned tabs by topic with OpenAI Responses, Anthropic, Google Gemini, or an OpenAI Completions-compatible API.
 - Create multiple named provider profiles, switch between them, and retain each profile's protocol, Base URL, API key, model list, and selected model.
+- Start with no preconfigured providers; every provider profile is added explicitly by the user and the final profile can be deleted.
 - Use an official endpoint or a custom API Base URL with every supported protocol.
 - Load the models available to an API key and select a model independently for each saved profile.
+- Test a saved model with one bounded generation request before using it for tab grouping.
+- Use a compact responsive settings page with fixed toast feedback and shortcut configuration in the page header.
+- Open settings from the popup's accessible top-right gear button; shortcut configuration stays on the settings page.
 - Optionally close duplicate tabs before AI grouping. This option is disabled by default; when enabled, AI grouping stops if duplicate cleanup fails.
 - Keep mutation buttons disabled while a background tab operation is running, including after the popup is closed and reopened.
 - Show localized progress feedback immediately after an action starts and consistently when a popup is reopened during that operation.
@@ -39,18 +43,25 @@ The production ZIP can be generated with `pnpm zip`.
 
 ## Configure AI Grouping
 
-1. Open the Tab Sense settings page from the extension popup.
-2. Select an existing provider profile or create a new one.
+1. Open the Tab Sense settings page with the gear button in the top-right corner of the extension popup.
+2. Select an existing provider profile or choose **Add provider** to create the first one.
 3. Give the profile a descriptive name and choose its protocol.
 4. Keep the official API Base URL or enter a custom API root, such as `https://api.example.com/v1`.
 5. Enter an API key.
 6. Select **Refresh models** and grant Chrome access to the configured provider host when prompted.
 7. Choose one of the returned models. The selection is saved with that profile.
-8. Optionally enable **Close duplicate tabs before AI grouping**.
+8. Select **Test model** to verify the saved key, endpoint, and selected model.
+9. Optionally enable **Close duplicate tabs before AI grouping**.
 
-Remote endpoints for every protocol must use HTTPS. Plain HTTP is accepted only for `localhost`, `127.0.0.1`, and `::1` so local model servers and gateways can be used safely. The Base URL must include the provider's API version path when required, such as `/v1` for OpenAI and Anthropic or `/v1beta` for Gemini.
+Chrome shortcut configuration is available from the button in the settings-page header.
 
-OpenAI and OpenAI-compatible model APIs can return models that do not generate text because their model-list responses do not expose a universal generation-capability field. If such a model is selected, Tab Sense reports the provider error without changing tab groups.
+Remote endpoints for every protocol must use HTTPS. Plain HTTP is accepted only for `localhost`, `127.0.0.1`, and `::1` so local model servers and gateways can be used safely. The Base URL must include the provider's API version path when required, such as `/v1` for OpenAI or `/v1beta` for Gemini. Anthropic follows the official SDK convention and automatically appends `/v1`; legacy Base URLs already ending in `/v1` remain supported.
+
+If an Anthropic-compatible endpoint does not expose `/v1/models`, Tab Sense retries model discovery once through the sibling OpenAI-format `/models` endpoint with Bearer authentication. AI grouping continues to use the Anthropic Messages protocol.
+
+The model connectivity test sends a short `Reply with OK.` prompt with a maximum output of 16 tokens. The provider may charge for this request.
+
+OpenAI Responses and OpenAI Completions model APIs can return models that do not generate text because their model-list responses do not expose a universal generation-capability field. If such a model is selected, Tab Sense reports the provider error without changing tab groups.
 
 ## Tab Behavior
 
@@ -91,6 +102,8 @@ pnpm zip        Create the distributable Chrome ZIP
 
 Behavior changes follow test-driven development: add a failing reusable test, implement the minimum behavior, and then run the full verification suite.
 
+Pull requests run `pnpm test` automatically when they are opened, reopened, or updated with new commits. The workflow uses Node.js 22, the pnpm version declared in `package.json`, a frozen lockfile install, and read-only repository permissions.
+
 ## Project Structure
 
 - `src/background` contains runtime routing, workflow locking, and provider orchestration.
@@ -102,3 +115,16 @@ Behavior changes follow test-driven development: add a failing reusable test, im
 ## Packaging
 
 The source repository and generated ZIP are the intended deliverables. Chrome Web Store submission and store listing assets are outside the current scope.
+
+## Automated GitHub Releases
+
+Pushing a Git tag starts `.github/workflows/release.yml`. The workflow installs the pnpm version declared in `package.json` on Node.js 22, runs linting, type checking, and tests, creates the Chrome ZIP, verifies the archive, and publishes it as a GitHub Release asset with generated release notes.
+
+The tag must match the `package.json` version, with an optional leading `v`. For example, version `0.1.0` accepts either `v0.1.0` or `0.1.0`:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Rerunning the workflow for an existing release replaces the ZIP asset. The workflow uses the repository-provided `GITHUB_TOKEN`; no additional release secret is required.

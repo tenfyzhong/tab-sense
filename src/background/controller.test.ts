@@ -43,6 +43,7 @@ function dependencies(): RuntimeControllerDependencies {
     saveProviderProfile: vi.fn(async () => settings),
     saveWorkflowPreference: vi.fn(async () => settings),
     setActiveProviderProfile: vi.fn(async () => settings),
+    testProviderModel: vi.fn(async () => ({ connected: true as const })),
     undoLastAction: vi.fn(async () => ({ failedTabCount: 0, restoredTabCount: 2 })),
     ungroupAll: vi.fn(async () => ({ groupCount: 2, ungroupedTabCount: 4 })),
   };
@@ -71,6 +72,9 @@ describe('RuntimeController', () => {
       type: 'save-provider-profile',
     });
     await controller.handle({ modelId: 'model-1', profileId: 'profile-1', type: 'save-model' });
+    await expect(
+      controller.handle({ profileId: 'profile-1', type: 'test-provider-model' }),
+    ).resolves.toEqual({ data: { connected: true }, ok: true });
     await controller.handle({ profileId: 'profile-1', type: 'delete-provider-profile' });
 
     expect(deps.createProviderProfile).toHaveBeenCalledWith('Work OpenAI', 'openai');
@@ -82,6 +86,7 @@ describe('RuntimeController', () => {
       providerId: 'openai',
     });
     expect(deps.saveModel).toHaveBeenCalledWith('profile-1', 'model-1');
+    expect(deps.testProviderModel).toHaveBeenCalledWith('profile-1');
     expect(deps.deleteProviderProfile).toHaveBeenCalledWith('profile-1');
   });
 

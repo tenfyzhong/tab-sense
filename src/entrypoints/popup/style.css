@@ -23,9 +23,15 @@ button {
 
 .popup-header {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.popup-identity {
+  display: flex;
   gap: 12px;
   align-items: center;
-  margin-bottom: 20px;
 }
 
 .brand-mark {
@@ -50,6 +56,42 @@ h1 {
   margin: 3px 0 0;
   color: #667085;
   font-size: 12px;
+}
+
+.settings-icon-button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 0;
+  color: #697386;
+  cursor: pointer;
+  background: transparent;
+}
+
+.settings-icon-button:hover,
+.settings-icon-button:focus-visible {
+  border-color: #dbe1ef;
+  color: #4f58a8;
+  background: #eceffa;
+}
+
+.settings-icon-button:focus-visible {
+  outline: 2px solid #6560e4;
+  outline-offset: 2px;
+}
+
+.settings-icon-button svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .action-stack {
@@ -144,15 +186,6 @@ kbd {
   background: #f6f8fc;
 }
 
-.text-button {
-  border: 0;
-  padding: 8px 0;
-  color: #5261bf;
-  cursor: pointer;
-  font-size: 12px;
-  background: transparent;
-}
-
 .status {
   border-radius: 9px;
   padding: 9px 11px;
@@ -163,12 +196,4 @@ kbd {
   margin: 10px 0 0;
   color: #29324a;
   font-size: 12px;
-}
-
-footer {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 12px;
-  border-top: 1px solid #e3e7f0;
-  padding-top: 6px;
 }

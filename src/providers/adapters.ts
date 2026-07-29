@@ -57,17 +57,44 @@ function connectionBaseUrl(connection: ProviderConnection): string {
   return normalizeCompatibleBaseUrl(baseUrl);
 }
 
+function anthropicApiBaseUrl(connection: ProviderConnection): string {
+  const baseUrl = connectionBaseUrl(connection);
+  return baseUrl.endsWith('/v1') ? baseUrl : `${baseUrl}/v1`;
+}
+
+function anthropicCatalogFallbackBaseUrl(connection: ProviderConnection): string {
+  const url = new URL(connectionBaseUrl(connection));
+  let pathname = url.pathname.replace(/\/+$/u, '');
+  if (pathname.endsWith('/v1')) {
+    pathname = pathname.slice(0, -3);
+  }
+  if (pathname.endsWith('/anthropic')) {
+    pathname = pathname.slice(0, -10);
+  }
+  url.pathname = pathname || '/';
+  return url.toString().replace(/\/$/u, '');
+}
+
+class ProviderHttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 function providerError(status: number): Error {
   if (status === 401 || status === 403) {
-    return new Error('The API key was rejected by the provider');
+    return new ProviderHttpError('The API key was rejected by the provider', status);
   }
   if (status === 429) {
-    return new Error('The provider rate limit was reached');
+    return new ProviderHttpError('The provider rate limit was reached', status);
   }
   if (status >= 500) {
-    return new Error('The provider is temporarily unavailable');
+    return new ProviderHttpError('The provider is temporarily unavailable', status);
   }
-  return new Error(`The provider request failed with status ${status}`);
+  return new ProviderHttpError(`The provider request failed with status ${status}`, status);
 }
 
 async function requestJson(fetcher: ProviderFetch, url: string, init: RequestInit): Promise<unknown> {
@@ -139,9 +166,31 @@ export async function listProviderModels(
     case 'openai-compatible':
       return listOpenAiModels(connectionBaseUrl(connection), connection.apiKey, fetcher);
     case 'anthropic':
-      return listAnthropicModels(connectionBaseUrl(connection), connection.apiKey, fetcher);
+      return listAnthropicProviderModels(connection, fetcher);
     case 'gemini':
       return listGeminiModels(connectionBaseUrl(connection), connection.apiKey, fetcher);
+  }
+}
+
+async function listAnthropicProviderModels(
+  connection: ProviderConnection,
+  fetcher: ProviderFetch,
+): Promise<ModelOption[]> {
+  try {
+    return await listAnthropicModels(
+      anthropicApiBaseUrl(connection),
+      connection.apiKey,
+      fetcher,
+    );
+  } catch (error) {
+    if (!(error instanceof ProviderHttpError) || error.status !== 404) {
+      throw error;
+    }
+    return listOpenAiModels(
+      anthropicCatalogFallbackBaseUrl(connection),
+      connection.apiKey,
+      fetcher,
+    );
   }
 }
 
@@ -284,7 +333,7 @@ export async function requestProviderGrouping(
       });
       return extractOpenAiResponse(data);
     case 'anthropic':
-      data = await requestJson(fetcher, `${connectionBaseUrl(connection)}/messages`, {
+      data = await requestJson(fetcher, `${anthropicApiBaseUrl(connection)}/messages`, {
         body: JSON.stringify({
           max_tokens: 4096,
           messages: [{ content: prompts.user, role: 'user' }],
@@ -323,6 +372,61 @@ export async function requestProviderGrouping(
         method: 'POST',
       });
       return extractCompatibleResponse(data);
+  }
+}
+
+export async function testProviderConnection(
+  connection: ProviderConnection,
+  fetcher: ProviderFetch = fetch,
+): Promise<void> {
+  const prompt = 'Reply with OK.';
+  switch (connection.providerId) {
+    case 'openai':
+      await requestJson(fetcher, `${connectionBaseUrl(connection)}/responses`, {
+        body: JSON.stringify({
+          input: [{ content: prompt, role: 'user' }],
+          max_output_tokens: 16,
+          model: connection.modelId,
+        }),
+        headers: openAiHeaders(connection.apiKey),
+        method: 'POST',
+      });
+      return;
+    case 'anthropic':
+      await requestJson(fetcher, `${anthropicApiBaseUrl(connection)}/messages`, {
+        body: JSON.stringify({
+          max_tokens: 16,
+          messages: [{ content: prompt, role: 'user' }],
+          model: connection.modelId,
+        }),
+        headers: anthropicHeaders(connection.apiKey),
+        method: 'POST',
+      });
+      return;
+    case 'gemini':
+      await requestJson(
+        fetcher,
+        `${connectionBaseUrl(connection)}/models/${encodeURIComponent(connection.modelId)}:generateContent`,
+        {
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }], role: 'user' }],
+            generationConfig: { maxOutputTokens: 16 },
+          }),
+          headers: geminiHeaders(connection.apiKey),
+          method: 'POST',
+        },
+      );
+      return;
+    case 'openai-compatible':
+      await requestJson(fetcher, `${connectionBaseUrl(connection)}/chat/completions`, {
+        body: JSON.stringify({
+          max_tokens: 16,
+          messages: [{ content: prompt, role: 'user' }],
+          model: connection.modelId,
+        }),
+        headers: openAiHeaders(connection.apiKey),
+        method: 'POST',
+      });
   }
 }
 
