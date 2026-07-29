@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Tab Sense logo">
+  <defs>
+    <linearGradient id="background" x1="18" y1="14" x2="111" y2="118" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7563F2" />
+      <stop offset="1" stop-color="#327BF0" />
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="6" stdDeviation="5" flood-color="#243C96" flood-opacity="0.28" />
+    </filter>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="30" fill="url(#background)" />
+  <g fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-linejoin="round" filter="url(#shadow)">
+    <path d="M32 40h64" stroke-width="11" />
+    <path d="M32 64h44" stroke-width="11" />
+    <path d="M32 88h58" stroke-width="11" />
+  </g>
+  <circle cx="94" cy="64" r="8" fill="#A8F0D0" />
+</svg>
