@@ -23,6 +23,7 @@ Tab Sense is a Chrome extension that closes duplicate tabs and organizes ungroup
 - Undo the most recent duplicate cleanup, AI grouping, or ungroup-all operation during the current browser session.
 - Remove every tab from its group in the current window with **Ungroup All Tabs**.
 - Run duplicate cleanup with `Alt+Shift+D` and AI grouping with `Alt+Shift+G`.
+- Optionally enable the extension in Chrome Incognito windows.
 - Use the interface in English or Simplified Chinese according to the Chrome UI language.
 
 ## Requirements
@@ -40,6 +41,9 @@ Tab Sense is a Chrome extension that closes duplicate tabs and organizes ungroup
 5. Select **Load unpacked** and choose `output/chrome-mv3`.
 
 The production ZIP can be generated with `pnpm zip`.
+
+To use Tab Sense in Incognito windows, open its details page from `chrome://extensions`
+and enable **Allow in Incognito**. Chrome requires this access to be granted explicitly.
 
 ## Configure AI Grouping
 
@@ -89,6 +93,10 @@ AI grouping sends only the following data directly from the extension to the sel
 
 Tab Sense has no backend, analytics, advertising, or content scripts. See [PRIVACY.md](PRIVACY.md) for the full privacy disclosure.
 
+When Incognito access is enabled, provider profiles and API keys are shared with the regular
+browser context. Actions run in an Incognito window may send the tab metadata described above
+to the selected AI provider.
+
 ## Development
 
 ```text
@@ -120,11 +128,11 @@ The source repository and generated ZIP are the intended deliverables. Chrome We
 
 Pushing a Git tag starts `.github/workflows/release.yml`. The workflow installs the pnpm version declared in `package.json` on Node.js 22, runs linting, type checking, and tests, creates the Chrome ZIP, verifies the archive, and publishes it as a GitHub Release asset with generated release notes.
 
-The tag must match the `package.json` version, with an optional leading `v`. For example, version `0.1.0` accepts either `v0.1.0` or `0.1.0`:
+The tag must match the `package.json` version, with an optional leading `v`. For example, version `0.1.1` accepts either `v0.1.1` or `0.1.1`:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 Rerunning the workflow for an existing release replaces the ZIP asset. The workflow uses the repository-provided `GITHUB_TOKEN`; no additional release secret is required.
