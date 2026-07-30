@@ -4,12 +4,19 @@ import { DEFAULT_PROVIDER_BASE_URLS } from '../../providers/adapters';
 import type { ProviderId, PublicSettings } from '../../providers/types';
 import { PROVIDER_IDS } from '../../providers/types';
 import { isPublicSettings } from '../../ui/guards';
+import { GuidedTour } from '../../ui/GuidedTour';
+import {
+  guidedTourStateClient,
+  type GuidedTourStateClient,
+  type GuidedTourStep,
+} from '../../ui/guided-tour-state';
 import { translate, type Translator } from '../../ui/i18n';
 import { runtimeClient, type UiClient } from '../../ui/runtime-client';
 
 interface OptionsAppProps {
   client?: UiClient;
   t?: Translator;
+  tourClient?: GuidedTourStateClient;
 }
 
 const PROVIDER_MESSAGE_KEYS: Record<ProviderId, string> = {
@@ -19,7 +26,11 @@ const PROVIDER_MESSAGE_KEYS: Record<ProviderId, string> = {
   'openai-compatible': 'providerOpenaiCompatible',
 };
 
-export function OptionsApp({ client = runtimeClient, t = translate }: OptionsAppProps) {
+export function OptionsApp({
+  client = runtimeClient,
+  t = translate,
+  tourClient = guidedTourStateClient,
+}: OptionsAppProps) {
   const [settings, setSettings] = useState<PublicSettings>();
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
@@ -27,6 +38,7 @@ export function OptionsApp({ client = runtimeClient, t = translate }: OptionsApp
   const [providerId, setProviderId] = useState<ProviderId>('openai');
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
+  const [tourStep, setTourStep] = useState<GuidedTourStep>();
 
   useEffect(() => {
     let active = true;
@@ -45,6 +57,18 @@ export function OptionsApp({ client = runtimeClient, t = translate }: OptionsApp
     };
   }, [client]);
 
+  useEffect(() => {
+    let active = true;
+    void tourClient.loadStep().then((step) => {
+      if (active) {
+        setTourStep(step);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [tourClient]);
+
   const profile = settings?.profiles.find((candidate) => candidate.id === settings.activeProfileId);
 
   useEffect(() => {
@@ -61,7 +85,7 @@ export function OptionsApp({ client = runtimeClient, t = translate }: OptionsApp
     if (!status || busy) {
       return;
     }
-    const timeout = globalThis.setTimeout(() => setStatus(''), 4500);
+    const timeout = globalThis.setTimeout(() => setStatus(''), 2000);
     return () => globalThis.clearTimeout(timeout);
   }, [busy, status]);
 
@@ -79,6 +103,15 @@ export function OptionsApp({ client = runtimeClient, t = translate }: OptionsApp
     return response.data;
   }
 
+  async function moveTour(nextStep: GuidedTourStep): Promise<void> {
+    await tourClient.saveStep(nextStep);
+    setTourStep(nextStep);
+  }
+
+  async function finishTour(): Promise<void> {
+    await moveTour('complete');
+  }
+
   async function addProfile(): Promise<void> {
     setStatus('');
     try {
@@ -87,6 +120,9 @@ export function OptionsApp({ client = runtimeClient, t = translate }: OptionsApp
         providerId: 'openai',
         type: 'create-provider-profile',
       });
+      if (tourStep === 'options-add-provider') {
+        await moveTour('options-configure-provider');
+      }
       setStatus(t('providerCreated'));
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Unknown error');
@@ -98,6 +134,36 @@ export function OptionsApp({ client = runtimeClient, t = translate }: OptionsApp
   }
 
   const currentSettings = settings;
+  const guidedTour =
+    tourStep === 'options-add-provider' ? (
+      <GuidedTour
+        body={t('tourAddProviderBody')}
+        onSkip={finishTour}
+        skipLabel={t('tourSkip')}
+        stepLabel={t('tourStepLabel', ['4', '6'])}
+        title={t('tourAddProviderTitle')}
+      />
+    ) : tourStep === 'options-configure-provider' ? (
+      <GuidedTour
+        body={t('tourConfigureProviderBody')}
+        nextLabel={t('tourNext')}
+        onNext={() => moveTour('options-shortcuts')}
+        onSkip={finishTour}
+        skipLabel={t('tourSkip')}
+        stepLabel={t('tourStepLabel', ['5', '6'])}
+        title={t('tourConfigureProviderTitle')}
+      />
+    ) : tourStep === 'options-shortcuts' ? (
+      <GuidedTour
+        body={t('tourShortcutsBody')}
+        nextLabel={t('tourFinish')}
+        onNext={finishTour}
+        onSkip={finishTour}
+        skipLabel={t('tourSkip')}
+        stepLabel={t('tourStepLabel', ['6', '6'])}
+        title={t('tourShortcutsTitle')}
+      />
+    ) : null;
   const settingsHeader = (
     <header className="settings-header">
       <div className="settings-identity">
@@ -109,7 +175,10 @@ export function OptionsApp({ client = runtimeClient, t = translate }: OptionsApp
           <p>{t('settingsSubtitle')}</p>
         </div>
       </div>
-      <button className="shortcut-button" onClick={() => void client.openShortcutSettings()}>
+      <button
+        className={`shortcut-button${tourStep === 'options-shortcuts' ? ' guided-tour-target' : ''}`}
+        onClick={() => void client.openShortcutSettings()}
+      >
         <svg aria-hidden="true" viewBox="0 0 24 24">
           <path d="M4 7.5h16v9H4zM7 10h.01M10 10h.01M13 10h.01M16 10h.01M8 13.5h8" />
         </svg>
@@ -130,13 +199,18 @@ export function OptionsApp({ client = runtimeClient, t = translate }: OptionsApp
 
         <section className="settings-card empty-provider-state">
           <p>{t('noProviders')}</p>
-          <button className="secondary-button" disabled={busy} onClick={() => void addProfile()}>
+          <button
+            className={`secondary-button${tourStep === 'options-add-provider' ? ' guided-tour-target' : ''}`}
+            disabled={busy}
+            onClick={() => void addProfile()}
+          >
             {t('addProvider')}
           </button>
         </section>
 
         <aside className="privacy-note">{t('privacyNotice')}</aside>
         {statusToast}
+        {guidedTour}
       </main>
     );
   }
@@ -263,7 +337,9 @@ export function OptionsApp({ client = runtimeClient, t = translate }: OptionsApp
     <main className="settings-shell">
       {settingsHeader}
 
-      <section className="settings-card">
+      <section
+        className={`settings-card${tourStep === 'options-configure-provider' ? ' guided-tour-target' : ''}`}
+      >
         <div className="settings-grid" data-testid="provider-settings-grid">
           <div className="profile-picker grid-wide">
             <label className="field grow-field">
@@ -280,7 +356,11 @@ export function OptionsApp({ client = runtimeClient, t = translate }: OptionsApp
                 ))}
               </select>
             </label>
-            <button className="secondary-button" disabled={busy} onClick={() => void addProfile()}>
+            <button
+              className={`secondary-button${tourStep === 'options-add-provider' ? ' guided-tour-target' : ''}`}
+              disabled={busy}
+              onClick={() => void addProfile()}
+            >
               {t('addProvider')}
             </button>
           </div>
@@ -405,6 +485,7 @@ export function OptionsApp({ client = runtimeClient, t = translate }: OptionsApp
 
       <aside className="privacy-note">{t('privacyNotice')}</aside>
       {statusToast}
+      {guidedTour}
     </main>
   );
 }

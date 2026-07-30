@@ -21,6 +21,10 @@ button {
   padding: 20px;
 }
 
+.popup-shell.guided-tour-active {
+  min-height: 500px;
+}
+
 .popup-header {
   display: flex;
   align-items: center;

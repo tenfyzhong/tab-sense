@@ -10,12 +10,19 @@ import {
   isUndoResult,
   isUngroupAllResult,
 } from '../../ui/guards';
+import { GuidedTour } from '../../ui/GuidedTour';
+import {
+  guidedTourStateClient,
+  type GuidedTourStateClient,
+  type GuidedTourStep,
+} from '../../ui/guided-tour-state';
 import { translate, type Translator } from '../../ui/i18n';
 import { runtimeClient, type CommandInfo, type UiClient } from '../../ui/runtime-client';
 
 interface PopupAppProps {
   client?: UiClient;
   t?: Translator;
+  tourClient?: GuidedTourStateClient;
 }
 
 const OPERATION_MESSAGE_KEYS: Record<OperationKind, string> = {
@@ -25,12 +32,17 @@ const OPERATION_MESSAGE_KEYS: Record<OperationKind, string> = {
   'ungroup-all': 'operationNameUngroupAll',
 };
 
-export function PopupApp({ client = runtimeClient, t = translate }: PopupAppProps) {
+export function PopupApp({
+  client = runtimeClient,
+  t = translate,
+  tourClient = guidedTourStateClient,
+}: PopupAppProps) {
   const [settings, setSettings] = useState<PublicSettings>();
   const [commands, setCommands] = useState<CommandInfo[]>([]);
   const [operationStatus, setOperationStatus] = useState<OperationStatus>();
   const [localBusy, setLocalBusy] = useState(false);
   const [status, setStatus] = useState('');
+  const [tourStep, setTourStep] = useState<GuidedTourStep>();
 
   function progressMessage(current: OperationStatus): string {
     const key = current.operation ? OPERATION_MESSAGE_KEYS[current.operation] : 'operationNameTabs';
@@ -70,6 +82,18 @@ export function PopupApp({ client = runtimeClient, t = translate }: PopupAppProp
       active = false;
     };
   }, [client, t]);
+
+  useEffect(() => {
+    let active = true;
+    void tourClient.loadStep().then((step) => {
+      if (active) {
+        setTourStep(step);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [tourClient]);
 
   useEffect(() => {
     if (!operationStatus?.busy) {
@@ -164,12 +188,55 @@ export function PopupApp({ client = runtimeClient, t = translate }: PopupAppProp
     }
   }
 
+  async function moveTour(nextStep: GuidedTourStep): Promise<void> {
+    await tourClient.saveStep(nextStep);
+    setTourStep(nextStep);
+  }
+
+  async function finishTour(): Promise<void> {
+    await moveTour('complete');
+  }
+
+  async function openSettings(): Promise<void> {
+    if (tourStep === 'popup-settings') {
+      await moveTour('options-add-provider');
+    }
+    await client.openOptions();
+  }
+
   if (!settings) {
     return <main className="popup-shell">{status || t('loading')}</main>;
   }
 
+  const popupTour =
+    tourStep === 'popup-close-duplicates'
+      ? {
+          body: t('tourCloseDuplicatesBody'),
+          nextLabel: t('tourNext'),
+          onNext: () => moveTour('popup-group-tabs'),
+          step: 1,
+          title: t('tourCloseDuplicatesTitle'),
+        }
+      : tourStep === 'popup-group-tabs'
+        ? {
+            body: t('tourGroupTabsBody'),
+            nextLabel: t('tourNext'),
+            onNext: () => moveTour('popup-settings'),
+            step: 2,
+            title: t('tourGroupTabsTitle'),
+          }
+        : tourStep === 'popup-settings'
+          ? {
+              body: t('tourSettingsBody'),
+              nextLabel: t('tourOpenSettings'),
+              onNext: openSettings,
+              step: 3,
+              title: t('tourSettingsTitle'),
+            }
+          : undefined;
+
   return (
-    <main className="popup-shell">
+    <main className={`popup-shell${popupTour ? ' guided-tour-active' : ''}`}>
       <header className="popup-header">
         <div className="popup-identity">
           <div className="brand-mark" aria-hidden="true">
@@ -182,8 +249,8 @@ export function PopupApp({ client = runtimeClient, t = translate }: PopupAppProp
         </div>
         <button
           aria-label={t('openSettings')}
-          className="settings-icon-button"
-          onClick={() => void client.openOptions()}
+          className={`settings-icon-button${tourStep === 'popup-settings' ? ' guided-tour-target' : ''}`}
+          onClick={() => void openSettings()}
           title={t('openSettings')}
         >
           <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -196,7 +263,7 @@ export function PopupApp({ client = runtimeClient, t = translate }: PopupAppProp
       <section className="action-stack" aria-label={t('tabActions')}>
         <button
           aria-label={t('closeDuplicates')}
-          className="action-button secondary"
+          className={`action-button secondary${tourStep === 'popup-close-duplicates' ? ' guided-tour-target' : ''}`}
           disabled={busy}
           onClick={() => void run('close-duplicates')}
         >
@@ -205,7 +272,7 @@ export function PopupApp({ client = runtimeClient, t = translate }: PopupAppProp
         </button>
         <button
           aria-label={t('groupTabs')}
-          className="action-button primary"
+          className={`action-button primary${tourStep === 'popup-group-tabs' ? ' guided-tour-target' : ''}`}
           disabled={busy || !aiReady}
           onClick={() => void run('group-tabs')}
         >
@@ -242,6 +309,18 @@ export function PopupApp({ client = runtimeClient, t = translate }: PopupAppProp
         <p className="status" role="status">
           {status}
         </p>
+      )}
+      {popupTour && (
+        <GuidedTour
+          body={popupTour.body}
+          className="popup-guided-tour"
+          nextLabel={popupTour.nextLabel}
+          onNext={popupTour.onNext}
+          onSkip={finishTour}
+          skipLabel={t('tourSkip')}
+          stepLabel={t('tourStepLabel', [String(popupTour.step), '6'])}
+          title={popupTour.title}
+        />
       )}
     </main>
   );

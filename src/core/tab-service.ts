@@ -75,6 +75,10 @@ interface UpdateTabGroupsApi {
   ): Promise<unknown>;
 }
 
+interface MoveTabGroupsApi {
+  move(groupId: number, properties: { index: number }): Promise<unknown>;
+}
+
 interface QueryTabGroupsApi {
   query(queryInfo: { windowId: number }): Promise<BrowserTabGroupLike[]>;
 }
@@ -159,6 +163,32 @@ async function readGroupSnapshots(
   return groups;
 }
 
+async function moveGroupsBeforeStandaloneTabs(
+  windowId: number,
+  tabsApi: QueryTabsApi,
+  tabGroupsApi: Partial<MoveTabGroupsApi>,
+): Promise<void> {
+  if (!tabGroupsApi.move) {
+    return;
+  }
+
+  const tabs = (await listTabsInWindow(windowId, tabsApi)).sort(
+    (left, right) => left.index - right.index,
+  );
+  const groupSizes = new Map<number, number>();
+  for (const tab of tabs) {
+    if (tab.groupId !== -1) {
+      groupSizes.set(tab.groupId, (groupSizes.get(tab.groupId) ?? 0) + 1);
+    }
+  }
+
+  let targetIndex = tabs.filter((tab) => tab.pinned).length;
+  for (const [groupId, size] of groupSizes) {
+    await tabGroupsApi.move(groupId, { index: targetIndex });
+    targetIndex += size;
+  }
+}
+
 export async function closeDuplicateTabsWithUndo(
   windowId: number,
   tabsApi: DuplicateTabsApi,
@@ -203,7 +233,7 @@ export async function applyGroupsWithUndo(
   groups: ProposedGroup[],
   windowId: number,
   tabsApi: GroupTabsApi,
-  tabGroupsApi: UpdateTabGroupsApi & Partial<QueryTabGroupsApi>,
+  tabGroupsApi: UpdateTabGroupsApi & Partial<MoveTabGroupsApi & QueryTabGroupsApi>,
 ): Promise<{ assignments: TabGroupAssignment[]; result: AppliedGroupingResult }> {
   const currentTabs = await listTabsInWindow(windowId, tabsApi);
   const eligibleIds = new Set(
@@ -257,6 +287,9 @@ export async function applyGroupsWithUndo(
       }
       groupCount += 1;
     }
+    if (assignments.length > 0) {
+      await moveGroupsBeforeStandaloneTabs(windowId, tabsApi, tabGroupsApi);
+    }
   } catch (error) {
     if (assignments.length > 0) {
       try {
@@ -278,7 +311,7 @@ export async function applyGroupsSafely(
   groups: ProposedGroup[],
   windowId: number,
   tabsApi: GroupTabsApi,
-  tabGroupsApi: UpdateTabGroupsApi & Partial<QueryTabGroupsApi>,
+  tabGroupsApi: UpdateTabGroupsApi & Partial<MoveTabGroupsApi & QueryTabGroupsApi>,
 ): Promise<AppliedGroupingResult> {
   return (await applyGroupsWithUndo(groups, windowId, tabsApi, tabGroupsApi)).result;
 }

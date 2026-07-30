@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { PopupApp } from './App';
 import type { RuntimeResponse } from '../../background/messages';
 import type { PublicSettings } from '../../providers/types';
+import type { GuidedTourStateClient, GuidedTourStep } from '../../ui/guided-tour-state';
 import type { Translator } from '../../ui/i18n';
 import type { UiClient } from '../../ui/runtime-client';
 
@@ -28,6 +29,16 @@ const translations: Record<string, string> = {
   secondaryTabActions: 'More tab actions',
   shortcuts: 'Shortcuts',
   title: 'Tab Sense',
+  tourCloseDuplicatesBody: 'Keep one copy of repeated URLs while pinned tabs stay protected.',
+  tourCloseDuplicatesTitle: 'Start with duplicate cleanup',
+  tourGroupTabsBody: 'Connect your preferred provider before using AI grouping.',
+  tourGroupTabsTitle: 'Organize tabs with AI',
+  tourNext: 'Next',
+  tourOpenSettings: 'Open settings',
+  tourSettingsBody: 'Open Settings to connect a provider and finish setup.',
+  tourSettingsTitle: 'Make Tab Sense yours',
+  tourSkip: 'Skip guide',
+  tourStepLabel: 'Step $1 of $2',
   undoLastAction: 'Undo Last Action',
   ungroupAll: 'Ungroup All Tabs',
   ungroupedTabsResult: 'Ungrouped $1 tabs from $2 groups.',
@@ -123,7 +134,58 @@ function client(publicSettings: PublicSettings, running = false): UiClient {
   };
 }
 
+function tourClient(initialStep: GuidedTourStep): GuidedTourStateClient {
+  let step = initialStep;
+  return {
+    loadStep: vi.fn(async () => step),
+    saveStep: vi.fn(async (nextStep) => {
+      step = nextStep;
+    }),
+  };
+}
+
 describe('PopupApp', () => {
+  it('guides new users through popup controls and continues in settings', async () => {
+    const uiClient = client(settings(false));
+    const guidedTour = tourClient('popup-close-duplicates');
+    render(<PopupApp client={uiClient} t={t} tourClient={guidedTour} />);
+
+    expect(
+      await screen.findByRole('dialog', { name: 'Start with duplicate cleanup' }),
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Close Duplicate Tabs' })).toHaveClass(
+      'guided-tour-target',
+    );
+    expect(screen.getByText('Step 1 of 6')).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(await screen.findByRole('dialog', { name: 'Organize tabs with AI' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Group Tabs with AI' })).toHaveClass(
+      'guided-tour-target',
+    );
+    expect(guidedTour.saveStep).toHaveBeenCalledWith('popup-group-tabs');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(await screen.findByRole('dialog', { name: 'Make Tab Sense yours' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('guided-tour-target');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open settings' }));
+    await waitFor(() => {
+      expect(guidedTour.saveStep).toHaveBeenCalledWith('options-add-provider');
+      expect(uiClient.openOptions).toHaveBeenCalledOnce();
+    });
+  });
+
+  it('lets a new user dismiss the popup guide', async () => {
+    const guidedTour = tourClient('popup-close-duplicates');
+    render(<PopupApp client={client(settings(false))} t={t} tourClient={guidedTour} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip guide' }));
+
+    await waitFor(() => expect(guidedTour.saveStep).toHaveBeenCalledWith('complete'));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('lets the popup shell shrink to its visible content', async () => {
     render(<PopupApp client={client(settings(true))} t={t} />);
 
