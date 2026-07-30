@@ -71,7 +71,7 @@ interface ReadTabGroupsApi {
 interface UpdateTabGroupsApi {
   update(
     groupId: number,
-    properties: { collapsed: boolean; color: ChromeGroupColor; title: string },
+    properties: { collapsed?: boolean; color?: ChromeGroupColor; title?: string },
   ): Promise<unknown>;
 }
 
@@ -163,15 +163,11 @@ async function readGroupSnapshots(
   return groups;
 }
 
-async function moveGroupsBeforeStandaloneTabs(
+async function arrangeGroupsAfterGrouping(
   windowId: number,
   tabsApi: QueryTabsApi,
-  tabGroupsApi: Partial<MoveTabGroupsApi>,
+  tabGroupsApi: UpdateTabGroupsApi & Partial<MoveTabGroupsApi>,
 ): Promise<void> {
-  if (!tabGroupsApi.move) {
-    return;
-  }
-
   const tabs = (await listTabsInWindow(windowId, tabsApi)).sort(
     (left, right) => left.index - right.index,
   );
@@ -182,9 +178,13 @@ async function moveGroupsBeforeStandaloneTabs(
     }
   }
 
+  const activeGroupId = tabs.find((tab) => tab.active)?.groupId ?? -1;
   let targetIndex = tabs.filter((tab) => tab.pinned).length;
   for (const [groupId, size] of groupSizes) {
-    await tabGroupsApi.move(groupId, { index: targetIndex });
+    if (tabGroupsApi.move) {
+      await tabGroupsApi.move(groupId, { index: targetIndex });
+    }
+    await tabGroupsApi.update(groupId, { collapsed: groupId !== activeGroupId });
     targetIndex += size;
   }
 }
@@ -288,7 +288,7 @@ export async function applyGroupsWithUndo(
       groupCount += 1;
     }
     if (assignments.length > 0) {
-      await moveGroupsBeforeStandaloneTabs(windowId, tabsApi, tabGroupsApi);
+      await arrangeGroupsAfterGrouping(windowId, tabsApi, tabGroupsApi);
     }
   } catch (error) {
     if (assignments.length > 0) {

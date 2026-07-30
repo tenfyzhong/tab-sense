@@ -104,6 +104,44 @@ describe('applyGroupsSafely', () => {
     expect(tabGroupsApi.move).toHaveBeenNthCalledWith(3, 6, { index: 4 });
   });
 
+  it('expands only the group containing the active tab after grouping', async () => {
+    const tabsApi = {
+      group: vi.fn(async () => 9),
+      query: vi
+        .fn()
+        .mockResolvedValueOnce([
+          { active: false, groupId: -1, id: 1, index: 0, pinned: false, url: 'https://a.test' },
+          { active: true, groupId: -1, id: 2, index: 1, pinned: false, url: 'https://b.test' },
+          { active: false, groupId: 5, id: 3, index: 2, pinned: false, url: 'https://old.test' },
+          { active: false, groupId: 6, id: 4, index: 3, pinned: false, url: 'https://later.test' },
+        ])
+        .mockResolvedValueOnce([
+          { active: false, groupId: 5, id: 3, index: 0, pinned: false, url: 'https://old.test' },
+          { active: false, groupId: 9, id: 1, index: 1, pinned: false, url: 'https://a.test' },
+          { active: true, groupId: 9, id: 2, index: 2, pinned: false, url: 'https://b.test' },
+          { active: false, groupId: 6, id: 4, index: 3, pinned: false, url: 'https://later.test' },
+        ]),
+      ungroup: vi.fn(async () => undefined),
+    };
+    const tabGroupsApi = {
+      move: vi.fn(async () => undefined),
+      update: vi.fn(async () => undefined),
+    };
+
+    await applyGroupsSafely(
+      [{ name: 'Active Work', tabIds: [1, 2] }],
+      42,
+      tabsApi,
+      tabGroupsApi,
+    );
+
+    expect(tabGroupsApi.update.mock.calls.slice(-3)).toEqual([
+      [5, { collapsed: true }],
+      [9, { collapsed: false }],
+      [6, { collapsed: true }],
+    ]);
+  });
+
   it('rolls back tabs changed by the current operation when a later group fails', async () => {
     const tabsApi = {
       group: vi.fn().mockResolvedValueOnce(9).mockRejectedValueOnce(new Error('group failed')),
