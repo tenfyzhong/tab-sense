@@ -76,7 +76,7 @@ Pinned tabs are never closed. If a duplicate URL has at least one pinned tab, al
 
 AI grouping mutates only ungrouped and unpinned tabs in the current window. To find a suitable destination, Tab Sense provides the AI with the IDs and titles of up to 50 existing groups and sanitized summaries for up to five member tabs per group. A single ungrouped tab may join an existing group. A new group is created only when no existing group is suitable and at least two tabs belong together. Reused groups retain their existing title, color, and collapsed state. New groups are expanded and receive deterministic Chrome group colors.
 
-After AI grouping succeeds, all tab groups keep their relative order and move ahead of standalone unpinned tabs. Pinned tabs remain at the front of the window.
+After AI grouping succeeds, all tab groups keep their relative order and move ahead of standalone unpinned tabs. Pinned tabs remain at the front of the window. The group containing the active tab stays expanded while every other group is collapsed; if the active tab is ungrouped, all groups are collapsed.
 
 Tab Sense keeps one undo record for the latest mutating action. A newer successful duplicate cleanup, AI grouping, or ungroup-all operation replaces the previous record. Undoing AI grouping removes only tabs that still belong to groups created by that operation, so subsequent manual moves are preserved. Undoing duplicate cleanup recreates the closed URLs and attempts to restore their positions and group membership; Chrome may reject restoration of restricted URLs or windows that no longer exist. **Ungroup All Tabs** affects only the current window and can be undone while its record remains available.
 
