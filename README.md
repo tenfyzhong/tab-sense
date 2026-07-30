@@ -15,6 +15,7 @@ Tab Sense is a Chrome extension that closes duplicate tabs and organizes ungroup
 - Test a saved model with one bounded generation request before using it for tab grouping.
 - Use a compact responsive settings page with fixed toast feedback and shortcut configuration in the page header.
 - Open settings from the popup's accessible top-right gear button; shortcut configuration stays on the settings page.
+- Guide new installations with a localized six-step spotlight overlay across the existing popup and settings page, including a real first-provider action and persisted cross-page progress.
 - Optionally close duplicate tabs before AI grouping. This option is disabled by default; when enabled, AI grouping stops if duplicate cleanup fails.
 - Keep mutation buttons disabled while a background tab operation is running, including after the popup is closed and reopened.
 - Show localized progress feedback immediately after an action starts and consistently when a popup is reopened during that operation.
@@ -75,6 +76,8 @@ Pinned tabs are never closed. If a duplicate URL has at least one pinned tab, al
 
 AI grouping mutates only ungrouped and unpinned tabs in the current window. To find a suitable destination, Tab Sense provides the AI with the IDs and titles of up to 50 existing groups and sanitized summaries for up to five member tabs per group. A single ungrouped tab may join an existing group. A new group is created only when no existing group is suitable and at least two tabs belong together. Reused groups retain their existing title, color, and collapsed state. New groups are expanded and receive deterministic Chrome group colors.
 
+After AI grouping succeeds, all tab groups keep their relative order and move ahead of standalone unpinned tabs. Pinned tabs remain at the front of the window.
+
 Tab Sense keeps one undo record for the latest mutating action. A newer successful duplicate cleanup, AI grouping, or ungroup-all operation replaces the previous record. Undoing AI grouping removes only tabs that still belong to groups created by that operation, so subsequent manual moves are preserved. Undoing duplicate cleanup recreates the closed URLs and attempts to restore their positions and group membership; Chrome may reject restoration of restricted URLs or windows that no longer exist. **Ungroup All Tabs** affects only the current window and can be undone while its record remains available.
 
 ## Privacy and Security
@@ -128,11 +131,11 @@ The source repository and generated ZIP are the intended deliverables. Chrome We
 
 Pushing a Git tag starts `.github/workflows/release.yml`. The workflow installs the pnpm version declared in `package.json` on Node.js 22, runs linting, type checking, and tests, creates the Chrome ZIP, verifies the archive, and publishes it as a GitHub Release asset with generated release notes.
 
-The tag must match the `package.json` version, with an optional leading `v`. For example, version `0.1.1` accepts either `v0.1.1` or `0.1.1`:
+The tag must match the `package.json` version, with an optional leading `v`. For example, version `0.1.2` accepts either `v0.1.2` or `0.1.2`:
 
 ```bash
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
 Rerunning the workflow for an existing release replaces the ZIP asset. The workflow uses the repository-provided `GITHUB_TOKEN`; no additional release secret is required.

@@ -64,6 +64,46 @@ describe('applyGroupsSafely', () => {
     expect(result).toEqual({ groupCount: 1, groupedTabCount: 2 });
   });
 
+  it('moves every group before standalone tabs after grouping', async () => {
+    const tabsApi = {
+      group: vi.fn(async () => 9),
+      query: vi
+        .fn()
+        .mockResolvedValueOnce([
+          { groupId: -1, id: 10, index: 0, pinned: true },
+          { groupId: -1, id: 1, index: 1, pinned: false, url: 'https://a.test' },
+          { groupId: 5, id: 2, index: 2, pinned: false, url: 'https://existing.test' },
+          { groupId: -1, id: 3, index: 3, pinned: false, url: 'https://b.test' },
+          { groupId: -1, id: 4, index: 4, pinned: false, url: 'https://standalone.test' },
+          { groupId: 6, id: 5, index: 5, pinned: false, url: 'https://later.test' },
+        ])
+        .mockResolvedValueOnce([
+          { groupId: -1, id: 10, index: 0, pinned: true },
+          { groupId: -1, id: 4, index: 1, pinned: false, url: 'https://standalone.test' },
+          { groupId: 5, id: 2, index: 2, pinned: false, url: 'https://existing.test' },
+          { groupId: 9, id: 1, index: 3, pinned: false, url: 'https://a.test' },
+          { groupId: 9, id: 3, index: 4, pinned: false, url: 'https://b.test' },
+          { groupId: 6, id: 5, index: 5, pinned: false, url: 'https://later.test' },
+        ]),
+      ungroup: vi.fn(async () => undefined),
+    };
+    const tabGroupsApi = {
+      move: vi.fn(async () => undefined),
+      update: vi.fn(async () => undefined),
+    };
+
+    await applyGroupsSafely(
+      [{ name: 'New Work', tabIds: [1, 3] }],
+      42,
+      tabsApi,
+      tabGroupsApi,
+    );
+
+    expect(tabGroupsApi.move).toHaveBeenNthCalledWith(1, 5, { index: 1 });
+    expect(tabGroupsApi.move).toHaveBeenNthCalledWith(2, 9, { index: 2 });
+    expect(tabGroupsApi.move).toHaveBeenNthCalledWith(3, 6, { index: 4 });
+  });
+
   it('rolls back tabs changed by the current operation when a later group fails', async () => {
     const tabsApi = {
       group: vi.fn().mockResolvedValueOnce(9).mockRejectedValueOnce(new Error('group failed')),

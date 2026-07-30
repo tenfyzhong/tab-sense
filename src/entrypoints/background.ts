@@ -4,6 +4,10 @@ import { createRuntimeDependencies } from '../background/app-service';
 import { RuntimeController } from '../background/controller';
 import type { RuntimeRequest, RuntimeResponse } from '../background/messages';
 import { formatNotificationMessage } from '../background/notification';
+import {
+  guidedTourStateClient,
+  initializeGuidedTourOnInstall,
+} from '../ui/guided-tour-state';
 
 function localize(key: string, substitutions?: string | string[]): string {
   return browser.i18n.getMessage(key as never, substitutions) || key;
@@ -20,6 +24,10 @@ async function notify(response: RuntimeResponse): Promise<void> {
 
 export default defineBackground(() => {
   const controller = new RuntimeController(createRuntimeDependencies());
+
+  browser.runtime.onInstalled.addListener((details) => {
+    void initializeGuidedTourOnInstall(details, guidedTourStateClient).catch(() => undefined);
+  });
 
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     void controller

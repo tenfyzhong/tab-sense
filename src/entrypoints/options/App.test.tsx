@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { OptionsApp } from './App';
 import type { RuntimeRequest, RuntimeResponse } from '../../background/messages';
 import type { PublicSettings } from '../../providers/types';
+import type { GuidedTourStateClient, GuidedTourStep } from '../../ui/guided-tour-state';
 import type { Translator } from '../../ui/i18n';
 import type { UiClient } from '../../ui/runtime-client';
 
@@ -44,9 +45,25 @@ const messages: Record<string, string> = {
   settingsSaved: 'Settings saved.',
   settingsTitle: 'Tab Sense Settings',
   testModel: 'Test model',
+  tourAddProviderBody: 'Click the highlighted button to create your first provider profile.',
+  tourAddProviderTitle: 'Add your AI provider',
+  tourConfigureProviderBody: 'Enter an API key, refresh models, and choose the model to use.',
+  tourConfigureProviderTitle: 'Complete the connection',
+  tourFinish: 'Finish',
+  tourNext: 'Next',
+  tourShortcutsBody: 'Use this button whenever you want to change keyboard shortcuts.',
+  tourShortcutsTitle: 'Set up shortcuts',
+  tourSkip: 'Skip guide',
+  tourStepLabel: 'Step $1 of $2',
 };
 
-const t: Translator = (key) => messages[key] ?? key;
+const t: Translator = (key, substitutions) => {
+  const values = Array.isArray(substitutions) ? substitutions : [substitutions ?? ''];
+  return values.reduce(
+    (message, value, index) => message.replace(`$${index + 1}`, String(value)),
+    messages[key] ?? key,
+  );
+};
 
 const initialSettings: PublicSettings = {
   activeProfileId: 'openai-work',
@@ -149,7 +166,74 @@ function client(currentSettings: PublicSettings = initialSettings): UiClient {
   };
 }
 
+function tourClient(initialStep: GuidedTourStep): GuidedTourStateClient {
+  let step = initialStep;
+  return {
+    loadStep: vi.fn(async () => step),
+    saveStep: vi.fn(async (nextStep) => {
+      step = nextStep;
+    }),
+  };
+}
+
 describe('OptionsApp', () => {
+  it('dismisses toast feedback after two seconds', async () => {
+    const uiClient = client();
+    render(<OptionsApp client={uiClient} t={t} />);
+
+    const saveButton = await screen.findByRole('button', { name: 'Save provider' });
+    await waitFor(() => expect(saveButton).toBeEnabled());
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    try {
+      fireEvent.click(saveButton);
+      expect(await screen.findByRole('status')).toHaveTextContent('Settings saved.');
+
+      const dismissal = timeoutSpy.mock.calls.find(([, delay]) => delay === 2000)?.[0];
+      expect(dismissal).toEqual(expect.any(Function));
+
+      act(() => {
+        if (typeof dismissal === 'function') {
+          dismissal();
+        }
+      });
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it('continues the guide on the settings page through real controls', async () => {
+    const uiClient = client(emptySettings);
+    const guidedTour = tourClient('options-add-provider');
+    render(<OptionsApp client={uiClient} t={t} tourClient={guidedTour} />);
+
+    expect(await screen.findByRole('dialog', { name: 'Add your AI provider' })).toBeVisible();
+    const addButton = screen.getByRole('button', { name: 'Add provider' });
+    expect(addButton).toHaveClass('guided-tour-target');
+    expect(screen.getByText('Step 4 of 6')).toBeVisible();
+
+    fireEvent.click(addButton);
+
+    const settingsGrid = await screen.findByTestId('provider-settings-grid');
+    await waitFor(() => {
+      expect(guidedTour.saveStep).toHaveBeenCalledWith('options-configure-provider');
+      expect(settingsGrid.closest('.settings-card')).toHaveClass('guided-tour-target');
+    });
+    expect(screen.getByRole('dialog', { name: 'Complete the connection' })).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => {
+      expect(guidedTour.saveStep).toHaveBeenCalledWith('options-shortcuts');
+      expect(screen.getByRole('button', { name: 'Configure shortcuts' })).toHaveClass(
+        'guided-tour-target',
+      );
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Finish' }));
+    await waitFor(() => expect(guidedTour.saveStep).toHaveBeenCalledWith('complete'));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('shows save feedback in a fixed toast', async () => {
     const uiClient = client();
     render(<OptionsApp client={uiClient} t={t} />);
