@@ -1,6 +1,6 @@
 {
   "name": "tab-sense",
-  "version": "0.1.2",
+  "version": "0.0.0-dev",
   "private": true,
   "description": "A Chrome extension for duplicate tab cleanup and AI-assisted tab grouping.",
   "type": "module",

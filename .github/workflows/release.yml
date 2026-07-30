@@ -46,6 +46,28 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Set release version from tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          version="${RELEASE_TAG#v}"
+
+          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Invalid release tag: $RELEASE_TAG; expected MAJOR.MINOR.PATCH with an optional leading v." >&2
+            exit 1
+          fi
+
+          IFS=. read -r major minor patch <<< "$version"
+          for component in "$major" "$minor" "$patch"; do
+            if (( component > 65535 )); then
+              echo "Version component exceeds Chrome's limit: $component" >&2
+              exit 1
+            fi
+          done
+
+          pnpm pkg set "version=$version"
+
       - name: Build release ZIP
         run: pnpm zip
 
@@ -55,21 +77,24 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         shell: bash
         run: |
-          package_version="$(node -p "require('./package.json').version")"
           tag_version="${RELEASE_TAG#v}"
-
-          if [[ "$tag_version" != "$package_version" ]]; then
-            echo "Tag $RELEASE_TAG does not match package version $package_version." >&2
-            exit 1
-          fi
-
-          archive="output/tab-sense-${package_version}-chrome.zip"
+          archive="output/tab-sense-${tag_version}-chrome.zip"
           if [[ ! -f "$archive" ]]; then
             echo "Expected release archive was not created: $archive" >&2
             exit 1
           fi
 
           unzip -t "$archive"
+
+          manifest_version="$(
+            unzip -p "$archive" manifest.json |
+              node -e "const fs = require('node:fs'); console.log(JSON.parse(fs.readFileSync(0, 'utf8')).version)"
+          )"
+          if [[ "$manifest_version" != "$tag_version" ]]; then
+            echo "ZIP manifest version $manifest_version does not match tag $RELEASE_TAG." >&2
+            exit 1
+          fi
+
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub Release
