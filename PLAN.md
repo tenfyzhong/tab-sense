@@ -72,7 +72,7 @@
   - Require JSON-only output, accept raw or fenced JSON, validate before mutation, make no automatic billable retry, and sanitize authentication, rate-limit, network, and malformed-response errors.
 - Automate tagged GitHub releases:
   - Trigger a release workflow whenever a tag is pushed.
-  - Require the tag version, with an optional leading `v`, to match `package.json` before packaging.
+  - Derive the release version from the tag, with an optional leading `v`, and temporarily apply it to `package.json` before packaging.
   - Install the pinned pnpm version on Node.js 22, run linting, type checking, and the full test suite, then build and integrity-check the Chrome ZIP.
   - Create a GitHub Release with generated notes and the ZIP attached, or replace the ZIP safely when a release workflow is rerun for the same tag.
   - Grant only repository-content write permission to the workflow and authenticate with the built-in `GITHUB_TOKEN`.

@@ -129,9 +129,9 @@ The source repository and generated ZIP are the intended deliverables. Chrome We
 
 ## Automated GitHub Releases
 
-Pushing a Git tag starts `.github/workflows/release.yml`. The workflow installs the pnpm version declared in `package.json` on Node.js 22, runs linting, type checking, and tests, creates the Chrome ZIP, verifies the archive, and publishes it as a GitHub Release asset with generated release notes.
+Pushing a Git tag starts `.github/workflows/release.yml`. The workflow installs the pnpm version declared in `package.json` on Node.js 22, runs linting, type checking, and tests, temporarily sets the package version from the tag, creates the Chrome ZIP, verifies the archive, and publishes it as a GitHub Release asset with generated release notes. The temporary version change exists only in the workflow checkout and is not committed to the repository.
 
-The tag must match the `package.json` version, with an optional leading `v`. For example, version `0.1.2` accepts either `v0.1.2` or `0.1.2`:
+The tag is the source of truth for release versions, so the development version in `package.json` does not need to be updated before a release. Tags must use `MAJOR.MINOR.PATCH`, with an optional leading `v`; each numeric component must be no greater than 65535. For example:
 
 ```bash
 git tag v0.1.2
