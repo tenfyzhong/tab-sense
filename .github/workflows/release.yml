@@ -1,4 +1,4 @@
-name: Release Chrome Extension
+name: Release Browser Extensions
 
 on:
   push:
@@ -61,53 +61,66 @@ jobs:
           IFS=. read -r major minor patch <<< "$version"
           for component in "$major" "$minor" "$patch"; do
             if (( component > 65535 )); then
-              echo "Version component exceeds Chrome's limit: $component" >&2
+              echo "Version component exceeds Chromium's limit: $component" >&2
               exit 1
             fi
           done
 
           pnpm pkg set "version=$version"
 
-      - name: Build release ZIP
-        run: pnpm zip
+      - name: Build release ZIPs
+        run: |
+          pnpm zip:chrome
+          pnpm zip:edge
+          pnpm zip:firefox
 
-      - name: Verify release metadata and ZIP
-        id: package
+      - name: Verify release metadata and ZIPs
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         shell: bash
         run: |
           tag_version="${RELEASE_TAG#v}"
-          archive="output/tab-sense-${tag_version}-chrome.zip"
-          if [[ ! -f "$archive" ]]; then
-            echo "Expected release archive was not created: $archive" >&2
-            exit 1
-          fi
+          release_archives=(
+            "output/tab-sense-${tag_version}-chrome.zip"
+            "output/tab-sense-${tag_version}-edge.zip"
+            "output/tab-sense-${tag_version}-firefox.zip"
+          )
 
-          unzip -t "$archive"
+          for archive in "${release_archives[@]}"; do
+            if [[ ! -f "$archive" ]]; then
+              echo "Expected release archive was not created: $archive" >&2
+              exit 1
+            fi
 
-          manifest_version="$(
-            unzip -p "$archive" manifest.json |
-              node -e "const fs = require('node:fs'); console.log(JSON.parse(fs.readFileSync(0, 'utf8')).version)"
-          )"
-          if [[ "$manifest_version" != "$tag_version" ]]; then
-            echo "ZIP manifest version $manifest_version does not match tag $RELEASE_TAG." >&2
-            exit 1
-          fi
+            unzip -t "$archive"
 
-          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+            manifest_version="$(
+              unzip -p "$archive" manifest.json |
+                node -e "const fs = require('node:fs'); console.log(JSON.parse(fs.readFileSync(0, 'utf8')).version)"
+            )"
+            if [[ "$manifest_version" != "$tag_version" ]]; then
+              echo "ZIP manifest version $manifest_version does not match tag $RELEASE_TAG." >&2
+              exit 1
+            fi
+          done
 
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_ARCHIVE: ${{ steps.package.outputs.archive }}
           RELEASE_TAG: ${{ github.ref_name }}
         shell: bash
         run: |
+          tag_version="${RELEASE_TAG#v}"
+          release_archives=(
+            "output/tab-sense-${tag_version}-chrome.zip"
+            "output/tab-sense-${tag_version}-edge.zip"
+            "output/tab-sense-${tag_version}-firefox.zip"
+          )
+
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" "$RELEASE_ARCHIVE" --clobber
+            gh release upload "$RELEASE_TAG" "${release_archives[@]}" --clobber
           else
-            gh release create "$RELEASE_TAG" "$RELEASE_ARCHIVE" \
+            gh release create "$RELEASE_TAG" "${release_archives[@]}" \
               --generate-notes \
               --title "Tab Sense $RELEASE_TAG" \
               --verify-tag

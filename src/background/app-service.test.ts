@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 
-import { refreshProviderModels, testConfiguredProviderModel } from './app-service';
+import {
+  createRuntimeDependencies,
+  refreshProviderModels,
+  testConfiguredProviderModel,
+} from './app-service';
 import {
   createProviderProfile,
   saveProviderModel,
@@ -86,5 +90,15 @@ describe('refreshProviderModels', () => {
       connected: true,
     });
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+});
+
+describe('browser window lookup', () => {
+  it('uses a browser-neutral error when no normal window is available', async () => {
+    vi.spyOn(fakeBrowser.windows, 'getLastFocused').mockResolvedValue({} as never);
+
+    await expect(createRuntimeDependencies().getCurrentWindowId()).rejects.toThrow(
+      'No normal browser window is available',
+    );
   });
 });

@@ -425,7 +425,7 @@ describe('OptionsApp', () => {
     });
   });
 
-  it('requests the configured host for an official protocol before refreshing models', async () => {
+  it('requests the configured host before awaiting profile persistence', async () => {
     const events: string[] = [];
     const uiClient = client();
     vi.mocked(uiClient.requestProviderPermission).mockImplementation(async () => {
@@ -447,7 +447,7 @@ describe('OptionsApp', () => {
     expect(refreshButton).toBeEnabled();
     fireEvent.click(refreshButton);
 
-    await waitFor(() => expect(events).toEqual(['save-provider-profile', 'permission', 'refresh-models']));
+    await waitFor(() => expect(events).toEqual(['permission', 'save-provider-profile', 'refresh-models']));
     expect(uiClient.requestProviderPermission).toHaveBeenCalledWith({
       baseUrl: 'https://openai.work.example/v1',
       providerId: 'openai',

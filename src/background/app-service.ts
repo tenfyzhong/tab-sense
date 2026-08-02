@@ -189,7 +189,7 @@ export function createRuntimeDependencies(): RuntimeControllerDependencies {
     getCurrentWindowId: async () => {
       const window = await browser.windows.getLastFocused({ windowTypes: ['normal'] });
       if (window.id === undefined) {
-        throw new Error('No normal Chrome window is available');
+        throw new Error('No normal browser window is available');
       }
       return window.id;
     },
