@@ -7,15 +7,48 @@ const providerOrigins = [
   'http://[::1]/*',
 ];
 
+const reactDomProductionModule = /[/\\]react-dom[/\\]cjs[/\\]react-dom-client\.production\.js$/u;
+const unsafeInnerHtmlAssignment = 'domElement.innerHTML = key;';
+
+function disableReactHtmlInjection(code: string): string {
+  const assignmentCount = code.split(unsafeInnerHtmlAssignment).length - 1;
+  if (assignmentCount !== 2) {
+    throw new Error(
+      `Expected two React DOM innerHTML assignments, found ${assignmentCount}`,
+    );
+  }
+
+  return code.replaceAll(
+    unsafeInnerHtmlAssignment,
+    'throw Error("dangerouslySetInnerHTML is disabled in the Firefox extension");',
+  );
+}
+
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   srcDir: 'src',
   outDir: 'output',
   targetBrowsers: ['chrome', 'edge', 'firefox'],
-  vite: () => ({
+  vite: ({ browser }) => ({
     build: {
       modulePreload: false,
     },
+    plugins:
+      browser === 'firefox'
+        ? [
+            {
+              enforce: 'pre',
+              name: 'disable-react-html-injection',
+              transform(code, id) {
+                if (!reactDomProductionModule.test(id)) {
+                  return;
+                }
+
+                return disableReactHtmlInjection(code);
+              },
+            },
+          ]
+        : undefined,
   }),
   manifest: ({ browser, manifestVersion }) => ({
     name: '__MSG_extensionName__',
@@ -30,7 +63,7 @@ export default defineConfig({
                 required: ['authenticationInfo', 'browsingActivity', 'websiteContent'],
               },
               id: 'tab-sense@tenfyzhong.github.io',
-              strict_min_version: '139.0',
+              strict_min_version: '142.0',
             },
           },
         }
