@@ -35,6 +35,22 @@ describe('parseGroupingPlan', () => {
     expect(parseGroupingPlan(`\`\`\`json\n${JSON.stringify(expected)}\n\`\`\``)).toEqual(expected);
   });
 
+  it('extracts a schema-valid JSON object from provider commentary', () => {
+    const expected = { groups: [{ name: 'Work', tabIds: [1, 2] }] };
+    const response = [
+      '<think>I should organize these tabs by topic.</think>',
+      'Here is the result:',
+      '```json',
+      JSON.stringify(expected),
+      '```',
+    ].join('\n');
+
+    expect(parseGroupingPlan(response)).toEqual(expected);
+    expect(
+      parseGroupingPlan(`<think>Keep the groups concise.</think>\n${JSON.stringify(expected)}`),
+    ).toEqual(expected);
+  });
+
   it('rejects malformed JSON shapes', () => {
     expect(() => parseGroupingPlan('{"groups":"invalid"}')).toThrow('Invalid grouping response');
   });

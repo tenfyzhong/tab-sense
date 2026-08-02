@@ -279,11 +279,11 @@ export function OptionsApp({
     setBusy(true);
     setStatus('');
     try {
-      await saveProfile();
       const granted = await client.requestProviderPermission({ baseUrl, providerId });
       if (!granted) {
         throw new Error(t('providerPermissionDenied'));
       }
+      await saveProfile();
       await applySettingsRequest({
         apiKey: apiKey || undefined,
         baseUrl,

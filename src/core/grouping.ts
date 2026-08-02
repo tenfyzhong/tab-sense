@@ -41,20 +41,68 @@ export function sanitizeTabForAi(tab: TabSnapshot): SanitizedTab {
   };
 }
 
+function extractJsonObjects(text: string): string[] {
+  const objects: string[] = [];
+  let depth = 0;
+  let escaped = false;
+  let inString = false;
+  let start = -1;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === '\\') {
+        escaped = true;
+      } else if (character === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (character === '"' && depth > 0) {
+      inString = true;
+    } else if (character === '{') {
+      if (depth === 0) {
+        start = index;
+      }
+      depth += 1;
+    } else if (character === '}' && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        objects.push(text.slice(start, index + 1));
+        start = -1;
+      }
+    }
+  }
+
+  return objects;
+}
+
 export function parseGroupingPlan(responseText: string): GroupingPlan {
   const trimmed = responseText.trim();
-  const fencedMatch = /^```(?:json)?\s*([\s\S]*?)\s*```$/iu.exec(trimmed);
-  const jsonText = fencedMatch?.[1] ?? trimmed;
-
-  try {
-    const result = groupingPlanSchema.safeParse(JSON.parse(jsonText));
-    if (!result.success) {
-      throw new Error('schema mismatch');
+  const candidates = [trimmed];
+  const fencedPattern = /```(?:json)?\s*([\s\S]*?)\s*```/giu;
+  for (const match of trimmed.matchAll(fencedPattern)) {
+    if (match[1]) {
+      candidates.push(match[1]);
     }
-    return result.data;
-  } catch {
-    throw new Error('Invalid grouping response');
   }
+  candidates.push(...extractJsonObjects(trimmed));
+
+  for (const candidate of new Set(candidates)) {
+    try {
+      const result = groupingPlanSchema.safeParse(JSON.parse(candidate));
+      if (result.success) {
+        return result.data;
+      }
+    } catch {
+      // Try the next candidate extracted from the provider response.
+    }
+  }
+
+  throw new Error('Invalid grouping response');
 }
 
 export function validateGroupingPlan(
