@@ -85,6 +85,7 @@ jobs:
             "output/tab-sense-${tag_version}-edge.zip"
             "output/tab-sense-${tag_version}-firefox.zip"
           )
+          firefox_sources="output/tab-sense-${tag_version}-sources.zip"
 
           for archive in "${release_archives[@]}"; do
             if [[ ! -f "$archive" ]]; then
@@ -103,6 +104,13 @@ jobs:
               exit 1
             fi
           done
+
+          if [[ ! -f "$firefox_sources" ]]; then
+            echo "Expected Firefox source archive was not created: $firefox_sources" >&2
+            exit 1
+          fi
+
+          unzip -t "$firefox_sources"
 
       - name: Publish GitHub Release
         env:
@@ -125,3 +133,23 @@ jobs:
               --title "Tab Sense $RELEASE_TAG" \
               --verify-tag
           fi
+
+      - name: Submit Firefox and Edge updates
+        env:
+          EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
+          EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          EDGE_PRODUCT_ID: ${{ vars.EDGE_PRODUCT_ID }}
+          FIREFOX_EXTENSION_ID: ${{ vars.FIREFOX_EXTENSION_ID }}
+          FIREFOX_JWT_ISSUER: ${{ secrets.FIREFOX_JWT_ISSUER }}
+          FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_JWT_SECRET }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          tag_version="${RELEASE_TAG#v}"
+
+          pnpm exec wxt submit \
+            --firefox-channel listed \
+            --firefox-compatibility firefox \
+            --firefox-zip "output/tab-sense-${tag_version}-firefox.zip" \
+            --firefox-sources-zip "output/tab-sense-${tag_version}-sources.zip" \
+            --edge-zip "output/tab-sense-${tag_version}-edge.zip"
