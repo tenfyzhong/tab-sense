@@ -54,7 +54,7 @@ describe('extension manifest', () => {
     expect(manifest).not.toHaveProperty('optional_permissions');
   });
 
-  it('builds a Firefox 139 MV2 manifest with provider permissions', async () => {
+  it('builds a Firefox 142 MV2 manifest with provider permissions', async () => {
     const manifest = await manifestFor('firefox', 2);
 
     expect(manifest).toMatchObject({
@@ -64,7 +64,7 @@ describe('extension manifest', () => {
             required: ['authenticationInfo', 'browsingActivity', 'websiteContent'],
           },
           id: 'tab-sense@tenfyzhong.github.io',
-          strict_min_version: '139.0',
+          strict_min_version: '142.0',
         },
       },
       incognito: 'spanning',
