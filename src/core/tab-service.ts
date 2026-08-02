@@ -1,21 +1,22 @@
 import { planDuplicateRemoval } from './duplicate-tabs';
 import { deterministicGroupColor, sanitizeTabForAi } from './grouping';
-import type {
-  AppliedGroupingResult,
-  ChromeGroupColor,
-  CloseDuplicatesUndoRecord,
-  ClosedTabSnapshot,
-  DuplicateExecutionResult,
-  ExistingGroupContext,
-  GroupTabsUndoRecord,
-  ProposedGroup,
-  TabGroupAssignment,
-  TabGroupSnapshot,
-  TabOperationUndoRecord,
-  TabSnapshot,
-  UndoExecutionResult,
-  UngroupAllResult,
-  UngroupAllUndoRecord,
+import {
+  CHROME_GROUP_COLORS,
+  type AppliedGroupingResult,
+  type ChromeGroupColor,
+  type CloseDuplicatesUndoRecord,
+  type ClosedTabSnapshot,
+  type DuplicateExecutionResult,
+  type ExistingGroupContext,
+  type GroupTabsUndoRecord,
+  type ProposedGroup,
+  type TabGroupAssignment,
+  type TabGroupSnapshot,
+  type TabOperationUndoRecord,
+  type TabSnapshot,
+  type UndoExecutionResult,
+  type UngroupAllResult,
+  type UngroupAllUndoRecord,
 } from './types';
 
 interface BrowserTabLike {
@@ -189,6 +190,30 @@ async function arrangeGroupsAfterGrouping(
   }
 }
 
+function leastUsedGroupColor(
+  name: string,
+  colorUseCounts: ReadonlyMap<ChromeGroupColor, number>,
+): ChromeGroupColor {
+  const preferredColor = deterministicGroupColor(name);
+  const preferredIndex = CHROME_GROUP_COLORS.indexOf(preferredColor);
+  let selectedColor = preferredColor;
+  let selectedCount = colorUseCounts.get(selectedColor) ?? 0;
+
+  for (let offset = 1; offset < CHROME_GROUP_COLORS.length; offset += 1) {
+    const color = CHROME_GROUP_COLORS[(preferredIndex + offset) % CHROME_GROUP_COLORS.length];
+    if (color === undefined) {
+      continue;
+    }
+    const count = colorUseCounts.get(color) ?? 0;
+    if (count < selectedCount) {
+      selectedColor = color;
+      selectedCount = count;
+    }
+  }
+
+  return selectedColor;
+}
+
 export async function closeDuplicateTabsWithUndo(
   windowId: number,
   tabsApi: DuplicateTabsApi,
@@ -243,12 +268,12 @@ export async function applyGroupsWithUndo(
   );
   const assignments: TabGroupAssignment[] = [];
   let groupCount = 0;
-  const needsExistingGroups = groups.some((group) => group.existingGroupId !== undefined);
-  const existingGroupIds = new Set(
-    needsExistingGroups && tabGroupsApi.query
-      ? (await tabGroupsApi.query({ windowId })).map((group) => group.id)
-      : [],
-  );
+  const existingGroups = tabGroupsApi.query ? await tabGroupsApi.query({ windowId }) : [];
+  const existingGroupIds = new Set(existingGroups.map((group) => group.id));
+  const colorUseCounts = new Map<ChromeGroupColor, number>();
+  for (const group of existingGroups) {
+    colorUseCounts.set(group.color, (colorUseCounts.get(group.color) ?? 0) + 1);
+  }
 
   try {
     for (const group of groups) {
@@ -279,11 +304,13 @@ export async function applyGroupsWithUndo(
       }
       assignments.push(...tabIds.map((tabId) => ({ groupId, tabId })));
       if (!reusedExisting) {
+        const color = leastUsedGroupColor(group.name, colorUseCounts);
         await tabGroupsApi.update(groupId, {
           collapsed: false,
-          color: deterministicGroupColor(group.name),
+          color,
           title: group.name,
         });
+        colorUseCounts.set(color, (colorUseCounts.get(color) ?? 0) + 1);
       }
       groupCount += 1;
     }

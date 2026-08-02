@@ -64,6 +64,53 @@ describe('applyGroupsSafely', () => {
     expect(result).toEqual({ groupCount: 1, groupedTabCount: 2 });
   });
 
+  it('assigns new groups colors that differ from each other and existing groups', async () => {
+    const tabsApi = {
+      group: vi.fn().mockResolvedValueOnce(9).mockResolvedValueOnce(10),
+      query: vi
+        .fn()
+        .mockResolvedValueOnce([
+          { groupId: -1, id: 1, index: 0, pinned: false, url: 'https://a.test' },
+          { groupId: -1, id: 2, index: 1, pinned: false, url: 'https://b.test' },
+          { groupId: -1, id: 3, index: 2, pinned: false, url: 'https://c.test' },
+          { groupId: -1, id: 4, index: 3, pinned: false, url: 'https://d.test' },
+          { groupId: 5, id: 5, index: 4, pinned: false, url: 'https://existing.test' },
+        ])
+        .mockResolvedValueOnce([
+          { groupId: 9, id: 1, index: 0, pinned: false, url: 'https://a.test' },
+          { groupId: 9, id: 2, index: 1, pinned: false, url: 'https://b.test' },
+          { groupId: 10, id: 3, index: 2, pinned: false, url: 'https://c.test' },
+          { groupId: 10, id: 4, index: 3, pinned: false, url: 'https://d.test' },
+          { groupId: 5, id: 5, index: 4, pinned: false, url: 'https://existing.test' },
+        ]),
+      ungroup: vi.fn(async () => undefined),
+    };
+    const tabGroupsApi = {
+      query: vi.fn(async () => [
+        { collapsed: true, color: 'yellow' as const, id: 5, title: 'Existing' },
+      ]),
+      update: vi.fn<
+        (groupId: number, properties: { color?: string }) => Promise<void>
+      >(async () => undefined),
+    };
+
+    await applyGroupsSafely(
+      [
+        { name: 'Group 7', tabIds: [1, 2] },
+        { name: 'Group 8', tabIds: [3, 4] },
+      ],
+      42,
+      tabsApi,
+      tabGroupsApi,
+    );
+
+    const assignedColors = tabGroupsApi.update.mock.calls
+      .map(([, properties]) => properties.color)
+      .filter((color) => color !== undefined);
+    expect(new Set(assignedColors).size).toBe(2);
+    expect(assignedColors).not.toContain('yellow');
+  });
+
   it('moves every group before standalone tabs after grouping', async () => {
     const tabsApi = {
       group: vi.fn(async () => 9),
