@@ -367,8 +367,10 @@ describe('requestProviderGrouping', () => {
       messages: Array<{ content: string; role: string }>;
     };
     expect(body.messages[0]?.content).toContain('Prefer assigning tabs to a suitable existing group');
+    expect(body.messages[0]?.content).toContain('Only return tab IDs from the top-level tabs array');
     expect(body.messages[1]?.content).toContain('"existingGroups"');
     expect(body.messages[1]?.content).toContain('"GitHub Issues"');
+    expect(body.messages[1]?.content).not.toContain('"id":70');
   });
 });
 

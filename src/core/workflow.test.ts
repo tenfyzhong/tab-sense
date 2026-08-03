@@ -142,4 +142,20 @@ describe('runAiGroupingWorkflow', () => {
     ).resolves.toMatchObject({ groupCount: 1, groupedTabCount: 1, ok: true });
     expect(deps.requestGrouping).toHaveBeenCalledOnce();
   });
+
+  it('ignores tab IDs that are not eligible for grouping', async () => {
+    const events: string[] = [];
+    const deps = dependencies(events);
+    vi.mocked(deps.requestGrouping).mockResolvedValueOnce(
+      '{"groups":[{"name":"Work","tabIds":[1,1922215332,2]}]}',
+    );
+
+    const result = await runAiGroupingWorkflow(
+      { deduplicateBeforeGrouping: false, locale: 'en', windowId: 10 },
+      deps,
+    );
+
+    expect(deps.applyGroups).toHaveBeenCalledWith([{ name: 'Work', tabIds: [1, 2] }], 10);
+    expect(result).toMatchObject({ groupCount: 1, groupedTabCount: 2, ok: true });
+  });
 });
