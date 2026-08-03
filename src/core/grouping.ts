@@ -136,7 +136,7 @@ export function validateGroupingPlan(
     };
     for (const tabId of group.tabIds) {
       if (!eligibleTabIds.has(tabId)) {
-        throw new Error(`Grouping response contains unknown tab ID ${tabId}`);
+        continue;
       }
       if (seenTabIds.has(tabId)) {
         throw new Error(`Grouping response contains repeated tab ID ${tabId}`);

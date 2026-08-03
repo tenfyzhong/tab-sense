@@ -72,11 +72,16 @@ describe('validateGroupingPlan', () => {
     expect(groups).toEqual([{ name: 'Work', tabIds: [1, 2] }]);
   });
 
-  it('rejects unknown and repeated tab IDs', () => {
-    expect(() =>
-      validateGroupingPlan({ groups: [{ name: 'Work', tabIds: [1, 9] }] }, new Set([1, 2])),
-    ).toThrow('unknown tab ID');
+  it('ignores unknown tab IDs', () => {
+    expect(
+      validateGroupingPlan(
+        { groups: [{ name: 'Work', tabIds: [1, 9, 2] }] },
+        new Set([1, 2]),
+      ),
+    ).toEqual([{ name: 'Work', tabIds: [1, 2] }]);
+  });
 
+  it('rejects repeated tab IDs', () => {
     expect(() =>
       validateGroupingPlan(
         {
