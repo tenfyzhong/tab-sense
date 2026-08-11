@@ -114,17 +114,16 @@ export function validateGroupingPlan(
   const mergedGroups = new Map<string, ProposedGroup>();
 
   for (const group of plan.groups) {
-    const name = group.name.replace(/\s+/gu, ' ').trim().slice(0, 30);
-    if (!name) {
-      throw new Error('Grouping response contains an empty group name');
-    }
     if (
       group.existingGroupId !== undefined &&
       !existingGroupIds.has(group.existingGroupId)
     ) {
-      throw new Error(
-        `Grouping response contains unknown existing group ID ${group.existingGroupId}`,
-      );
+      continue;
+    }
+
+    const name = group.name.replace(/\s+/gu, ' ').trim().slice(0, 30);
+    if (!name) {
+      throw new Error('Grouping response contains an empty group name');
     }
 
     const key =
@@ -139,7 +138,7 @@ export function validateGroupingPlan(
         continue;
       }
       if (seenTabIds.has(tabId)) {
-        throw new Error(`Grouping response contains repeated tab ID ${tabId}`);
+        continue;
       }
 
       seenTabIds.add(tabId);
