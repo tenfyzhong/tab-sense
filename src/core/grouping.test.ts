@@ -81,18 +81,21 @@ describe('validateGroupingPlan', () => {
     ).toEqual([{ name: 'Work', tabIds: [1, 2] }]);
   });
 
-  it('rejects repeated tab IDs', () => {
-    expect(() =>
+  it('keeps the first eligible occurrence of repeated tab IDs', () => {
+    expect(
       validateGroupingPlan(
         {
           groups: [
-            { name: 'Work', tabIds: [1, 2] },
-            { name: 'Other', tabIds: [2, 3] },
+            { name: 'Work', tabIds: [1, 1, 2] },
+            { name: 'Other', tabIds: [2, 3, 3, 4] },
           ],
         },
-        new Set([1, 2, 3]),
+        new Set([1, 2, 3, 4]),
       ),
-    ).toThrow('repeated tab ID');
+    ).toEqual([
+      { name: 'Work', tabIds: [1, 2] },
+      { name: 'Other', tabIds: [3, 4] },
+    ]);
   });
 
   it('keeps singleton assignments to existing groups and merges by existing group ID', () => {
@@ -111,14 +114,19 @@ describe('validateGroupingPlan', () => {
     expect(groups).toEqual([{ existingGroupId: 7, name: 'Work', tabIds: [1, 2] }]);
   });
 
-  it('rejects unknown existing group IDs', () => {
-    expect(() =>
+  it('skips unknown existing group proposals before validating their contents', () => {
+    expect(
       validateGroupingPlan(
-        { groups: [{ existingGroupId: 99, name: 'Missing', tabIds: [1] }] },
-        new Set([1]),
+        {
+          groups: [
+            { existingGroupId: 99, name: '   ', tabIds: [1, 2] },
+            { name: 'Work', tabIds: [1, 2] },
+          ],
+        },
+        new Set([1, 2]),
         new Set([7]),
       ),
-    ).toThrow('unknown existing group ID');
+    ).toEqual([{ name: 'Work', tabIds: [1, 2] }]);
   });
 });
 
