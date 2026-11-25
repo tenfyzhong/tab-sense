@@ -39,6 +39,7 @@ function dependencies(): RuntimeControllerDependencies {
       ok: true as const,
     })),
     refreshModels: vi.fn(async () => settings),
+    resolveModelContext: vi.fn(async () => ({ catalogContextTokens: 128_000 })),
     saveModel: vi.fn(async () => settings),
     saveProviderProfile: vi.fn(async () => settings),
     saveWorkflowPreference: vi.fn(async () => settings),

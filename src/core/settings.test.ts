@@ -127,6 +127,64 @@ describe('settings storage', () => {
     ).toMatchObject({ modelId: '', models: [] });
   });
 
+  it('uses the selected model limits and ignores an old manual context window', async () => {
+    await fakeBrowser.storage.local.set({
+      tabSenseCredentials: { 'local-profile': 'secret' },
+      tabSenseSettings: {
+        activeProfileId: 'local-profile',
+        deduplicateBeforeGrouping: false,
+        profiles: [{
+          baseUrl: 'https://gateway.example/v1',
+          contextWindowTokens: 32768,
+          id: 'local-profile',
+          modelId: 'first',
+          models: [
+            { displayName: 'First', id: 'first', maxInputTokens: 16384, maxOutputTokens: 2048 },
+            { displayName: 'Second', id: 'second' },
+          ],
+          name: 'Local model',
+          providerId: 'openai-compatible',
+        }],
+        version: 4,
+      },
+    });
+
+    expect((await loadPublicSettings()).profiles[0]).not.toHaveProperty('contextWindowTokens');
+    expect(await loadActiveProviderConnection()).not.toHaveProperty('contextWindowTokens');
+    expect(await loadActiveProviderConnection()).toMatchObject({
+      maxInputTokens: 16384,
+      maxOutputTokens: 2048,
+    });
+
+    await saveProviderModel('local-profile', 'second');
+    expect(await loadActiveProviderConnection()).not.toHaveProperty('maxInputTokens');
+  });
+
+  it('preserves a context override per model across switches and catalog refreshes', async () => {
+    const profile = await createProviderProfile({ name: 'Gateway', providerId: 'openai' });
+    const models = [{ displayName: 'One', id: 'one' }, { displayName: 'Two', id: 'two' }];
+    const provider = { apiKey: 'secret', baseUrl: profile.baseUrl, models, profileId: profile.id };
+    await saveRefreshedProvider(provider);
+    await saveProviderModel(profile.id, 'one');
+
+    const update = {
+      baseUrl: profile.baseUrl,
+      name: profile.name,
+      profileId: profile.id,
+      providerId: profile.providerId,
+    };
+    await saveProviderProfile({ ...update, modelContext: { modelId: 'one', tokens: 96_000 } });
+    expect(await loadActiveProviderConnection()).toMatchObject({ contextWindowTokens: 96_000 });
+    await saveProviderModel(profile.id, 'two');
+    expect(await loadActiveProviderConnection()).not.toHaveProperty('contextWindowTokens');
+    await saveRefreshedProvider(provider);
+    await saveProviderModel(profile.id, 'one');
+    expect(await loadActiveProviderConnection()).toMatchObject({ contextWindowTokens: 96_000 });
+
+    await saveProviderProfile({ ...update, modelContext: { modelId: 'one', tokens: null } });
+    expect(await loadActiveProviderConnection()).not.toHaveProperty('contextWindowTokens');
+  });
+
   it('persists the workflow preference and migrates legacy per-protocol settings', async () => {
     await fakeBrowser.storage.local.set({
       tabSenseCredentials: { anthropic: 'legacy-secret' },

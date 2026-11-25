@@ -20,6 +20,7 @@ const messages: Record<string, string> = {
   closeDuplicatesBeforeGrouping: 'Close duplicate tabs before AI grouping',
   closeDuplicatesBeforeGroupingDescription:
     'When enabled, grouping stops if duplicate cleanup fails.',
+  contextWindowTokens: 'Model context window (tokens)',
   customBaseUrl: 'API Base URL',
   deleteProvider: 'Delete provider',
   model: 'Model',
@@ -155,11 +156,13 @@ function client(currentSettings: PublicSettings = initialSettings): UiClient {
     openShortcutSettings: vi.fn(async () => undefined),
     request: vi.fn(async (request): Promise<RuntimeResponse> => ({
       data:
-        request.type === 'test-provider-model'
-          ? { connected: true }
-          : request.type === 'get-settings'
-            ? currentSettings
-            : settingsResponse(request, currentSettings),
+        request.type === 'resolve-model-context'
+          ? { catalogContextTokens: 1_050_000 }
+          : request.type === 'test-provider-model'
+            ? { connected: true }
+            : request.type === 'get-settings'
+              ? currentSettings
+              : settingsResponse(request, currentSettings),
       ok: true,
     })),
     requestProviderPermission: vi.fn(async () => true),
@@ -177,6 +180,44 @@ function tourClient(initialStep: GuidedTourStep): GuidedTourStateClient {
 }
 
 describe('OptionsApp', () => {
+  it('fills the model context from the catalog and saves an edited value', async () => {
+    const uiClient = client();
+    render(<OptionsApp client={uiClient} t={t} />);
+
+    const input = await screen.findByRole('spinbutton', { name: 'Model context window (tokens)' });
+    await waitFor(() => expect(input).toHaveValue(1_050_000));
+    fireEvent.change(input, { target: { value: '96000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save provider' }));
+
+    await waitFor(() => expect(uiClient.request).toHaveBeenCalledWith(expect.objectContaining({
+      modelContext: { modelId: 'model-1', tokens: 96_000 },
+      profileId: 'openai-work',
+      type: 'save-provider-profile',
+    })));
+  });
+
+  it('shows a saved override and allows clearing it', async () => {
+    const profile = initialSettings.profiles[0]!;
+    const uiClient = client({
+      ...initialSettings,
+      profiles: [{
+        ...profile,
+        models: [{ displayName: 'Model One', id: 'model-1', contextWindowOverride: 64_000 }],
+      }],
+    });
+    render(<OptionsApp client={uiClient} t={t} />);
+
+    const input = await screen.findByRole('spinbutton', { name: 'Model context window (tokens)' });
+    expect(input).toHaveValue(64_000);
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save provider' }));
+
+    await waitFor(() => expect(uiClient.request).toHaveBeenCalledWith(expect.objectContaining({
+      modelContext: { modelId: 'model-1', tokens: null },
+      type: 'save-provider-profile',
+    })));
+  });
+
   it('dismisses toast feedback after two seconds', async () => {
     const uiClient = client();
     render(<OptionsApp client={uiClient} t={t} />);
@@ -399,7 +440,9 @@ describe('OptionsApp', () => {
         type: 'set-active-provider-profile',
       });
     });
-    expect(await screen.findByDisplayValue('Personal Claude')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: 'Provider name' })).toHaveValue('Personal Claude');
+    });
   });
 
   it('saves a profile name, protocol, and custom Base URL', async () => {
@@ -435,6 +478,9 @@ describe('OptionsApp', () => {
     vi.mocked(uiClient.request).mockImplementation(async (request): Promise<RuntimeResponse> => {
       if (request.type === 'get-settings') {
         return { data: initialSettings, ok: true };
+      }
+      if (request.type === 'resolve-model-context') {
+        return { data: { catalogContextTokens: null }, ok: true };
       }
       events.push(request.type);
       return { data: settingsResponse(request), ok: true };

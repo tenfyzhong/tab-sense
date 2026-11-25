@@ -5,7 +5,7 @@ import type {
   UndoExecutionResult,
   UngroupAllResult,
 } from '../core/types';
-import type { ProviderId, PublicSettings } from '../providers/types';
+import type { ProviderId, ProviderProfileUpdate, PublicSettings } from '../providers/types';
 
 export type OperationKind =
   | 'close-duplicates'
@@ -27,19 +27,17 @@ export interface ProviderConnectionTestResult {
   connected: true;
 }
 
+export interface ModelContextResult {
+  catalogContextTokens: number | null;
+}
+
 export type RuntimeRequest =
   | { type: 'get-settings' }
   | { type: 'get-operation-status' }
   | { name: string; providerId: ProviderId; type: 'create-provider-profile' }
   | { profileId: string; type: 'delete-provider-profile' }
   | { profileId: string; type: 'set-active-provider-profile' }
-  | {
-      baseUrl: string;
-      name: string;
-      profileId: string;
-      providerId: ProviderId;
-      type: 'save-provider-profile';
-    }
+  | (ProviderProfileUpdate & { type: 'save-provider-profile' })
   | { enabled: boolean; type: 'save-workflow-preference' }
   | {
       apiKey?: string;
@@ -48,6 +46,7 @@ export type RuntimeRequest =
       type: 'refresh-models';
     }
   | { modelId: string; profileId: string; type: 'save-model' }
+  | { modelId: string; profileId: string; type: 'resolve-model-context' }
   | { profileId: string; type: 'test-provider-model' }
   | { type: 'close-duplicates' }
   | { type: 'group-tabs' }
@@ -60,6 +59,7 @@ export type RuntimeData =
   | AiGroupingWorkflowResult
   | OperationStatus
   | ProviderConnectionTestResult
+  | ModelContextResult
   | UndoExecutionResult
   | UngroupAllResult;
 

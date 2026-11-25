@@ -1,11 +1,14 @@
 import { browser } from 'wxt/browser';
 
 import { DEFAULT_PROVIDER_BASE_URLS, normalizeCompatibleBaseUrl } from '../providers/adapters';
+import { isValidContextWindow, MIN_CONTEXT_WINDOW_TOKENS } from '../providers/grouping-budget';
 import {
   PROVIDER_IDS,
   type ModelOption,
+  type ModelIdentity,
   type ProviderConnection,
   type ProviderId,
+  type ProviderProfileUpdate,
   type PublicProviderSettings,
   type PublicSettings,
   type RefreshedProviderInput,
@@ -241,9 +244,15 @@ function publicSettings(settings: StoredSettings, credentials: StoredCredentials
   return {
     activeProfileId: settings.activeProfileId,
     deduplicateBeforeGrouping: settings.deduplicateBeforeGrouping,
-    profiles: settings.profiles.map((profile): PublicProviderSettings => ({
-      ...profile,
-      hasApiKey: Boolean(credentials[profile.id]),
+    profiles: settings.profiles.map(({ baseUrl, id, modelId, models, name, providerId, refreshedAt }): PublicProviderSettings => ({
+      baseUrl,
+      hasApiKey: Boolean(credentials[id]),
+      id,
+      modelId,
+      models,
+      name,
+      providerId,
+      ...(refreshedAt === undefined ? {} : { refreshedAt }),
     })),
   };
 }
@@ -281,12 +290,7 @@ export async function createProviderProfile(input: {
   return { ...profile, hasApiKey: Boolean(credentials[profile.id]) };
 }
 
-export async function saveProviderProfile(input: {
-  baseUrl: string;
-  name: string;
-  profileId: string;
-  providerId: ProviderId;
-}): Promise<void> {
+export async function saveProviderProfile(input: ProviderProfileUpdate): Promise<void> {
   const { settings } = await loadState();
   const current = findProfile(settings, input.profileId);
   const name = input.name.trim();
@@ -295,6 +299,21 @@ export async function saveProviderProfile(input: {
   }
   const baseUrl = normalizedBaseUrl(input.providerId, input.baseUrl);
   const connectionChanged = current.providerId !== input.providerId || current.baseUrl !== baseUrl;
+  if (input.modelContext) {
+    const { modelId, tokens } = input.modelContext;
+    const model = current.models.find(({ id }) => id === modelId);
+    if (connectionChanged || current.modelId !== modelId || !model) {
+      throw new Error('The selected model changed. Select it again before saving its context window.');
+    }
+    if (tokens === null) {
+      delete model.contextWindowOverride;
+    } else {
+      if (!isValidContextWindow(tokens)) {
+        throw new Error(`Enter a whole number of at least ${MIN_CONTEXT_WINDOW_TOKENS} tokens.`);
+      }
+      model.contextWindowOverride = tokens;
+    }
+  }
   Object.assign(current, {
     baseUrl,
     name,
@@ -340,11 +359,18 @@ export async function saveRefreshedProvider(input: RefreshedProviderInput): Prom
   }
 
   credentials[profile.id] = apiKey;
-  profile.baseUrl = normalizedBaseUrl(profile.providerId, input.baseUrl);
+  const baseUrl = normalizedBaseUrl(profile.providerId, input.baseUrl);
+  const overrides = new Map(
+    profile.models.map(({ id, contextWindowOverride }) => [id, contextWindowOverride]),
+  );
+  profile.models = input.models.map((model) => {
+    const override = profile.baseUrl === baseUrl ? overrides.get(model.id) : undefined;
+    return override === undefined ? model : { ...model, contextWindowOverride: override };
+  });
+  profile.baseUrl = baseUrl;
   profile.modelId = input.models.some((model) => model.id === profile.modelId)
     ? profile.modelId
     : '';
-  profile.models = input.models;
   profile.refreshedAt = new Date().toISOString();
   await saveState(settings, credentials);
 }
@@ -363,6 +389,20 @@ export async function loadProviderApiKey(profileId: string): Promise<string | un
   return (await loadState()).credentials[profileId];
 }
 
+function catalogContextKey({ baseUrl, modelId, providerId }: ModelIdentity): string {
+  return `tabSenseCatalogContext:${JSON.stringify([providerId, baseUrl, modelId])}`;
+}
+
+export async function loadCatalogModelContext(identity: ModelIdentity): Promise<number | undefined> {
+  const key = catalogContextKey(identity);
+  const result = (await browser.storage.local.get(key))[key];
+  return typeof result === 'number' && Number.isSafeInteger(result) && result > 0 ? result : undefined;
+}
+
+export async function saveCatalogModelContext(identity: ModelIdentity, tokens: number): Promise<void> {
+  await browser.storage.local.set({ [catalogContextKey(identity)]: tokens });
+}
+
 export async function loadProviderConnection(profileId: string): Promise<ProviderConnection> {
   const { credentials, settings } = await loadState();
   const profile = findProfile(settings, profileId);
@@ -373,9 +413,14 @@ export async function loadProviderConnection(profileId: string): Promise<Provide
   if (!profile.modelId) {
     throw new Error('Select a model before grouping tabs');
   }
+  const model = profile.models.find(({ id }) => id === profile.modelId);
+  const contextWindowTokens = model?.contextWindowOverride ?? await loadCatalogModelContext(profile);
   return {
     apiKey,
     baseUrl: profile.baseUrl,
+    ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
+    ...(model?.maxInputTokens === undefined ? {} : { maxInputTokens: model.maxInputTokens }),
+    ...(model?.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
     modelId: profile.modelId,
     providerId: profile.providerId,
   };

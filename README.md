@@ -92,6 +92,8 @@ If an Anthropic-compatible endpoint does not expose `/v1/models`, Tab Sense retr
 
 The model connectivity test sends a short `Reply with OK.` prompt with a maximum output of 16 tokens. The provider may charge for this request.
 
+The **Model context window (tokens)** field starts with the selected model's context from [models.dev](https://models.dev/) when available. Edit it and select **Save provider** to override the budget for that model. Clear it and save to restore automatic selection. If the catalog has no matching value, Tab Sense uses the provider's reported limit or falls back to an estimated 128,000 tokens. Each request also respects the limits reported by the provider.
+
 OpenAI Responses and OpenAI Completions model APIs can return models that do not generate text because their model-list responses do not expose a universal generation-capability field. If such a model is selected, Tab Sense reports the provider error without changing tab groups.
 
 ## Tab Behavior
@@ -101,6 +103,8 @@ Duplicate cleanup compares complete URL strings. Query strings and fragments are
 Pinned tabs are never closed. If a duplicate URL has at least one pinned tab, all matching unpinned tabs are closed and the pinned tabs remain. Otherwise, the active matching tab is retained; if none is active, the leftmost matching tab is retained.
 
 AI grouping mutates only ungrouped and unpinned tabs in the current window. To find a suitable destination, Tab Sense provides the AI with the IDs and titles of up to 50 existing groups and sanitized summaries for up to five member tabs per group. A single ungrouped tab may join an existing group. A new group is created only when no existing group is suitable and at least two tabs belong together. Reused groups retain their existing title, color, and collapsed state. New groups are expanded and favor the least-used group colors in the current window, with deterministic name-based selection among equally used colors supported by all target browsers.
+
+Each request reserves space for the model's answer. When tab metadata exceeds the budget, Tab Sense sends it in batches, shortening long titles and URLs and limiting existing-group samples as needed. It merges proposals for the same existing group or new group name and applies the result once all batches succeed. Tabs from the same site are kept close together when batching.
 
 After AI grouping succeeds, all tab groups keep their relative order and move ahead of standalone unpinned tabs. Pinned tabs remain at the front of the window. The group containing the active tab stays expanded while every other group is collapsed; if the active tab is ungrouped, all groups are collapsed.
 

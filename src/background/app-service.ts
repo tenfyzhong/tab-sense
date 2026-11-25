@@ -1,14 +1,17 @@
 import { browser } from 'wxt/browser';
 
 import type { RuntimeControllerDependencies } from './controller';
+import type { ModelContextResult } from './messages';
 import {
   createProviderProfile,
   deleteProviderProfile,
   loadActiveProviderConnection,
+  loadCatalogModelContext,
   loadProviderConnection,
   loadProviderApiKey,
   loadPublicSettings,
   saveProviderModel,
+  saveCatalogModelContext,
   saveProviderProfile,
   saveRefreshedProvider,
   saveWorkflowPreference,
@@ -34,8 +37,10 @@ import {
   listProviderModels,
   normalizeCompatibleBaseUrl,
   requestProviderGrouping,
+  resolveGroupingModelLimits,
   testProviderConnection,
 } from '../providers/adapters';
+import { lookupCatalogContext } from '../providers/model-catalog';
 import type { ProviderFetch, PublicSettings } from '../providers/types';
 
 interface RefreshModelsInput {
@@ -85,6 +90,21 @@ export async function testConfiguredProviderModel(
   return { connected: true };
 }
 
+async function resolveConfiguredModelContext(profileId: string, modelId: string): Promise<ModelContextResult> {
+  const settings = await loadPublicSettings();
+  const profile = settings.profiles.find(({ id }) => id === profileId);
+  if (!profile || !modelId || profile.modelId !== modelId) {
+    return { catalogContextTokens: null };
+  }
+
+  const context = await lookupCatalogContext(profile);
+  if (context !== undefined) {
+    await saveCatalogModelContext(profile, context);
+    return { catalogContextTokens: context };
+  }
+  return { catalogContextTokens: await loadCatalogModelContext(profile) ?? null };
+}
+
 export async function runConfiguredAiGrouping(windowId: number): Promise<AiGroupingWorkflowResult> {
   const settings = await loadPublicSettings();
   let duplicateUndo: CloseDuplicatesUndoRecord | undefined;
@@ -129,8 +149,8 @@ export async function runConfiguredAiGrouping(windowId: number): Promise<AiGroup
       listEligibleTabs: (targetWindowId) => listTabsInWindow(targetWindowId, browser.tabs),
       listExistingGroups: (targetWindowId) =>
         listExistingGroupsInWindow(targetWindowId, browser.tabs, browser.tabGroups),
-      requestGrouping: (tabs, existingGroups, locale) =>
-        requestProviderGrouping(connection, tabs, existingGroups, locale),
+      requestGrouping: async (tabs, existingGroups, locale) =>
+        requestProviderGrouping(await resolveGroupingModelLimits(connection), tabs, existingGroups, locale),
     },
   ).then(async (result) => {
     const undo = result.ok
@@ -202,6 +222,7 @@ export function createRuntimeDependencies(): RuntimeControllerDependencies {
     },
     groupTabs: runConfiguredAiGrouping,
     refreshModels: refreshProviderModels,
+    resolveModelContext: resolveConfiguredModelContext,
     saveModel: async (profileId, modelId) => {
       await saveProviderModel(profileId, modelId);
       return loadPublicSettings();
