@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 
 import { DEFAULT_PROVIDER_BASE_URLS } from '../../providers/adapters';
+import {
+  DEFAULT_CONTEXT_WINDOW_TOKENS,
+  isValidContextWindow,
+  MIN_CONTEXT_WINDOW_TOKENS,
+} from '../../providers/grouping-budget';
 import type { ProviderId, PublicSettings } from '../../providers/types';
 import { PROVIDER_IDS } from '../../providers/types';
 import { isPublicSettings } from '../../ui/guards';
@@ -34,6 +39,8 @@ export function OptionsApp({
   const [settings, setSettings] = useState<PublicSettings>();
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
+  const [contextWindowDraft, setContextWindowDraft] = useState<string | null>(null);
+  const [catalogContext, setCatalogContext] = useState<{ key: string; tokens: number | null }>();
   const [name, setName] = useState('');
   const [providerId, setProviderId] = useState<ProviderId>('openai');
   const [busy, setBusy] = useState(false);
@@ -70,6 +77,29 @@ export function OptionsApp({
   }, [tourClient]);
 
   const profile = settings?.profiles.find((candidate) => candidate.id === settings.activeProfileId);
+  const configuredProfileId = profile?.id;
+  const configuredBaseUrl = profile?.baseUrl;
+  const configuredModelId = profile?.modelId;
+  const catalogKey = JSON.stringify([configuredProfileId, configuredBaseUrl, configuredModelId, profile?.refreshedAt]);
+
+  useEffect(() => {
+    if (!configuredProfileId || !configuredModelId) {
+      return;
+    }
+    let active = true;
+    void client.request({
+      modelId: configuredModelId,
+      profileId: configuredProfileId,
+      type: 'resolve-model-context',
+    }).then((response) => {
+      if (active && response.ok && 'catalogContextTokens' in response.data) {
+        setCatalogContext({ key: catalogKey, tokens: response.data.catalogContextTokens });
+      }
+    }, () => undefined);
+    return () => {
+      active = false;
+    };
+  }, [catalogKey, client, configuredModelId, configuredProfileId]);
 
   useEffect(() => {
     if (!profile) {
@@ -77,6 +107,7 @@ export function OptionsApp({
     }
     setApiKey('');
     setBaseUrl(profile.baseUrl);
+    setContextWindowDraft(null);
     setName(profile.name);
     setProviderId(profile.providerId);
   }, [profile]);
@@ -216,6 +247,11 @@ export function OptionsApp({
   }
 
   const currentProfile = profile;
+  const currentModel = profile.models.find(({ id }) => id === profile.modelId);
+  const canEditContextWindow = Boolean(currentModel) &&
+    baseUrl === profile.baseUrl && providerId === profile.providerId;
+  const suggestedContext = (catalogContext?.key === catalogKey ? catalogContext.tokens : null) ??
+    currentModel?.maxInputTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS;
 
   async function selectProfile(profileId: string): Promise<void> {
     setStatus('');
@@ -243,8 +279,17 @@ export function OptionsApp({
   }
 
   async function saveProfile(): Promise<PublicSettings> {
+    let modelContext;
+    if (canEditContextWindow && contextWindowDraft !== null) {
+      const tokens = contextWindowDraft === '' ? null : Number(contextWindowDraft);
+      if (tokens !== null && !isValidContextWindow(tokens)) {
+        throw new Error(t('invalidContextWindowTokens', String(MIN_CONTEXT_WINDOW_TOKENS)));
+      }
+      modelContext = { modelId: currentProfile.modelId, tokens };
+    }
     return applySettingsRequest({
       baseUrl,
+      ...(modelContext === undefined ? {} : { modelContext }),
       name,
       profileId: currentProfile.id,
       providerId,
@@ -447,6 +492,23 @@ export function OptionsApp({
                 {t('testModel')}
               </button>
             </div>
+          </div>
+
+          <div className="field">
+            <label htmlFor="provider-context-window">{t('contextWindowTokens')}</label>
+            <input
+              aria-describedby="provider-context-window-help"
+              disabled={busy || !canEditContextWindow}
+              id="provider-context-window"
+              min={MIN_CONTEXT_WINDOW_TOKENS}
+              onChange={(event) => setContextWindowDraft(event.target.value)}
+              placeholder={currentModel ? String(suggestedContext) : undefined}
+              type="number"
+              value={contextWindowDraft ?? (currentModel
+                ? String(currentModel.contextWindowOverride ?? suggestedContext)
+                : '')}
+            />
+            <small id="provider-context-window-help">{t('contextWindowTokensDescription')}</small>
           </div>
 
           <div className="provider-actions grid-wide">

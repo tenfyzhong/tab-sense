@@ -1,6 +1,6 @@
 # Tab Sense Privacy Notice
 
-Last updated: August 2, 2026
+Last updated: November 25, 2026
 
 ## Overview
 
@@ -11,7 +11,8 @@ Tab Sense manages tabs locally in Google Chrome, Microsoft Edge, and Mozilla Fir
 Tab Sense stores the following values in the WebExtension `storage.local` area:
 
 - Named AI provider profiles and the selected active profile
-- The protocol, API Base URL, selected model, and model list for each profile
+- The protocol, API Base URL, selected model, and model list with any provider-reported limits for each profile
+- Saved context overrides and context limits downloaded from the public model catalog
 - Provider API keys, stored separately by profile
 - The preference that controls whether duplicate tabs are closed before AI grouping
 
@@ -36,7 +37,11 @@ Pinned and already-grouped tabs are excluded from reassignment. Limited metadata
 
 The selected provider receives the request under the user's own account and API key. Its processing, retention, billing, and privacy practices are governed by that provider's terms and policies. Users should review those policies before enabling AI grouping.
 
+Large tab collections may be sent as multiple requests. Each request includes a subset of tabs and may repeat matching context from existing groups. Titles and URLs may be shortened further to fit the configured request budget.
+
 ## Network and Custom Providers
+
+The settings page downloads the public model catalog from models.dev to look up context limits. The lookup matches the selected model locally. The catalog request carries no API keys, selected model IDs, or tab data.
 
 Tab Sense requests browser host access only when the user configures a provider and refreshes its models. OpenAI, Anthropic, Gemini, and OpenAI-compatible profiles can all use custom API Base URLs. Remote endpoints must use HTTPS. Plain HTTP is accepted only for loopback addresses used by local services: `localhost`, `127.0.0.1`, and `::1`.
 

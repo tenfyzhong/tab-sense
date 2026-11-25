@@ -7,7 +7,10 @@ import {
   requestProviderGrouping,
   testProviderConnection,
 } from './adapters';
-import type { ProviderConnection, ProviderId } from './types';
+import type { ProviderConnection, ProviderFetch, ProviderId } from './types';
+import { parseGroupingPlan, validateGroupingPlan } from '../core/grouping';
+import type { ExistingGroupContext, SanitizedTab } from '../core/types';
+import { runAiGroupingWorkflow } from '../core/workflow';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -95,12 +98,45 @@ describe('listProviderModels', () => {
     );
   });
 
+  it('reads context limits advertised by OpenAI-compatible model catalogs', async () => {
+    const models = await listProviderModels(
+      {
+        apiKey: 'secret',
+        baseUrl: 'https://gateway.example/v1',
+        modelId: '',
+        providerId: 'openai-compatible',
+      },
+      vi.fn(async () => jsonResponse({
+        data: [
+          {
+            id: 'openrouter-model',
+            context_length: 32768,
+            top_provider: { context_length: 8192, max_completion_tokens: 2048 },
+          },
+          { id: 'vllm-model', max_model_len: 4096 },
+          { id: 'unreported-model', max_model_len: -1, context_length: 'unknown' },
+        ],
+      })),
+    );
+
+    expect(models).toEqual([
+      {
+        displayName: 'openrouter-model',
+        id: 'openrouter-model',
+        maxInputTokens: 8192,
+        maxOutputTokens: 2048,
+      },
+      { displayName: 'unreported-model', id: 'unreported-model' },
+      { displayName: 'vllm-model', id: 'vllm-model', maxInputTokens: 4096 },
+    ]);
+  });
+
   it('paginates Anthropic models', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
         jsonResponse({
-          data: [{ display_name: 'Claude B', id: 'claude-b' }],
+          data: [{ display_name: 'Claude B', id: 'claude-b', max_input_tokens: 8192, max_tokens: 512 }],
           has_more: true,
           last_id: 'claude-b',
         }),
@@ -123,6 +159,7 @@ describe('listProviderModels', () => {
     );
 
     expect(models.map((model) => model.id)).toEqual(['claude-a', 'claude-b']);
+    expect(models[1]).toMatchObject({ maxInputTokens: 8192, maxOutputTokens: 512 });
     expect(fetchMock.mock.calls[1]?.[0]).toContain('after_id=claude-b');
     expect(fetchMock.mock.calls[0]?.[0]).toContain('https://anthropic.gateway.example/v1/models');
     expect(fetchMock.mock.calls[0]?.[1]).toEqual(
@@ -217,7 +254,9 @@ describe('listProviderModels', () => {
           models: [
             {
               displayName: 'Gemini Chat',
+              inputTokenLimit: 8192,
               name: 'models/gemini-chat',
+              outputTokenLimit: 512,
               supportedGenerationMethods: ['generateContent'],
             },
             {
@@ -241,7 +280,12 @@ describe('listProviderModels', () => {
       fetchMock,
     );
 
-    expect(models).toEqual([{ displayName: 'Gemini Chat', id: 'gemini-chat' }]);
+    expect(models).toEqual([{
+      displayName: 'Gemini Chat',
+      id: 'gemini-chat',
+      maxInputTokens: 8192,
+      maxOutputTokens: 512,
+    }]);
     expect(fetchMock.mock.calls[1]?.[0]).toContain('pageToken=next-page');
     expect(fetchMock.mock.calls[0]?.[0]).toContain(
       'https://gemini.gateway.example/v1beta/models',
@@ -313,7 +357,192 @@ describe('requestProviderGrouping', () => {
         `https://${providerId}.gateway.example/v1/`,
       );
     });
+
+    it(`groups ${providerId} tabs in large batches within the 128,000-token default budget`, async () => {
+      const tabs = Array.from({ length: 90 }, (_, index) => ({
+        id: index + 1,
+        title: '标签🌍"\\'.repeat(35),
+        url: `https://one.example/${index}/${'path'.repeat(65)}`,
+      }));
+      const receivedTabs: SanitizedTab[] = [];
+      const batchSizes: number[] = [];
+      const fetchMock = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        const system = body.input?.[0].content ?? body.system ??
+          body.systemInstruction?.parts[0].text ?? body.messages[0].content;
+        const user = body.input?.[1].content ?? body.contents?.[0].parts[0].text ??
+          body.messages.at(-1).content;
+        const output = body.max_output_tokens ?? body.max_tokens ??
+          body.generationConfig?.maxOutputTokens;
+        expect(output).toBeGreaterThan(0);
+        expect(new TextEncoder().encode(system + user).length + output).toBeLessThanOrEqual(128_000);
+        const batch = JSON.parse(user).tabs as SanitizedTab[];
+        batchSizes.push(batch.length);
+        receivedTabs.push(...batch);
+        return jsonResponse(responseByProvider[providerId]);
+      });
+
+      await requestProviderGrouping(
+        {
+          apiKey: 'secret',
+          baseUrl: 'https://gateway.example/v1',
+          modelId: 'model-1',
+          providerId,
+        },
+        tabs,
+        [],
+        'zh-CN',
+        fetchMock,
+      );
+
+      expect(batchSizes).toEqual([80, 10]);
+      expect(receivedTabs.map((tab) => tab.id)).toEqual(tabs.map((tab) => tab.id));
+    });
   }
+
+  it('compacts long metadata to fit a smaller window and merges validated batch proposals', async () => {
+    const tabs = Array.from({ length: 12 }, (_, index) => ({
+      id: index + 1,
+      title: '中文🌍\u0000'.repeat(180),
+      url: `https://project.example/${index}/${'x'.repeat(700)}`,
+    }));
+    const existingGroups = Array.from({ length: 50 }, (_, index) => ({
+      id: index + 100,
+      tabs: [{
+        id: index + 200,
+        title: '示例🌍'.repeat(100),
+        url: index === 49 ? 'https://project.example/old' : `https://other.example/${index}`,
+      }],
+      title: index === 49 ? 'Project' : '其他🌍'.repeat(100),
+    }));
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      const [system, user] = body.messages.map(({ content }: { content: string }) => content);
+      expect(new TextEncoder().encode(system + user).length + body.max_tokens).toBeLessThanOrEqual(2048);
+      const batch = JSON.parse(user) as { tabs: SanitizedTab[]; existingGroups: ExistingGroupContext[] };
+      expect(batch.tabs.length).toBeGreaterThanOrEqual(2);
+      expect(batch.existingGroups.map(({ id }) => id)).toContain(149);
+      expect(batch.existingGroups.map(({ id }) => id)).not.toContain(148);
+      const ids = batch.tabs.map(({ id, title, url }) => {
+        expect(title).not.toContain('\uFFFD');
+        expect(url).toMatch(/^https:\/\/project\.example\//u);
+        return id;
+      });
+      const response = {
+        groups: [
+          { existingGroupId: 148, name: 'Unrelated', tabIds: ids },
+          { existingGroupId: 149, name: 'Project', tabIds: [ids[0], 12, 777] },
+          { name: 'Shared topic', tabIds: ids.slice(1) },
+        ],
+      };
+      return jsonResponse({ choices: [{ message: { content: JSON.stringify(response) } }] });
+    });
+
+    const response = await requestProviderGrouping(
+      {
+        apiKey: 'secret',
+        baseUrl: 'https://gateway.example/v1',
+        contextWindowTokens: 2048,
+        modelId: 'model-1',
+        providerId: 'openai-compatible',
+      },
+      tabs,
+      existingGroups,
+      'en',
+      fetchMock,
+    );
+
+    const plan = parseGroupingPlan(response);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
+    expect(plan.groups.flatMap(({ tabIds }) => tabIds)).not.toContain(777);
+    expect(validateGroupingPlan(
+      plan,
+      new Set(tabs.map(({ id }) => id)),
+      new Set(existingGroups.map(({ id }) => id)),
+    )).toEqual([
+      { existingGroupId: 149, name: 'Project', tabIds: [1, 3, 5, 7, 9, 11, 12] },
+      { name: 'Shared topic', tabIds: [2, 4, 6, 8, 10] },
+    ]);
+  });
+
+  it('does not apply groups when a later batch fails', async () => {
+    const tabs = Array.from({ length: 12 }, (_, index) => ({
+      id: index + 1,
+      title: '规划🌍'.repeat(70),
+      url: `https://project.example/${index}/${'path'.repeat(90)}`,
+    }));
+    const fetchMock = vi.fn(async () => jsonResponse({}, 503)).mockResolvedValueOnce(jsonResponse({
+      output_text: '{"groups":[{"name":"Project","tabIds":[1,2]}]}',
+    }));
+    const connection: ProviderConnection = {
+      apiKey: 'secret',
+      maxInputTokens: 4096,
+      modelId: 'model-1',
+      providerId: 'openai',
+    };
+    const applyGroups = vi.fn();
+
+    await expect(runAiGroupingWorkflow(
+      { deduplicateBeforeGrouping: false, locale: 'en', windowId: 1 },
+      {
+        applyGroups,
+        closeDuplicates: vi.fn(),
+        listEligibleTabs: async () => tabs.map((tab, index) => ({
+          ...tab, active: false, groupId: -1, index, pinned: false,
+        })),
+        listExistingGroups: async () => [],
+        requestGrouping: (candidates, groups, locale) =>
+          requestProviderGrouping(connection, candidates, groups, locale, fetchMock),
+      },
+    )).resolves.toEqual({
+      error: 'The provider is temporarily unavailable',
+      ok: false,
+      stage: 'provider',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(applyGroups).not.toHaveBeenCalled();
+  });
+
+  it('honors provider-advertised input and output limits', async () => {
+    const tabs = Array.from({ length: 24 }, (_, index) => ({
+      id: index + 1,
+      title: '示例🌍'.repeat(50),
+      url: `https://project.example/${index}`,
+    }));
+    const fetchMock = vi.fn<ProviderFetch>(async () =>
+      jsonResponse(responseByProvider.gemini),
+    );
+    const connection: ProviderConnection = {
+      apiKey: 'secret',
+      contextWindowTokens: 1_050_000,
+      maxInputTokens: 2048,
+      maxOutputTokens: 480,
+      modelId: 'model-1',
+      providerId: 'gemini',
+    };
+
+    await requestProviderGrouping(connection, tabs, [], 'en', fetchMock);
+
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
+    for (const [, init] of fetchMock.mock.calls) {
+      const body = JSON.parse(String(init?.body));
+      const inputBytes = new TextEncoder().encode(
+        body.systemInstruction.parts[0].text + body.contents[0].parts[0].text,
+      ).length;
+      expect(body.generationConfig.maxOutputTokens).toBeLessThanOrEqual(480);
+      expect(inputBytes + body.generationConfig.maxOutputTokens).toBeLessThanOrEqual(2048);
+    }
+
+    fetchMock.mockClear();
+    await expect(requestProviderGrouping(
+      { ...connection, maxInputTokens: 1024 },
+      tabs,
+      [],
+      'en',
+      fetchMock,
+    )).rejects.toThrow('context window');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 
   it('uses the versioned Messages endpoint for an Anthropic SDK-style Base URL', async () => {
     const fetchMock = vi.fn(async () => jsonResponse(responseByProvider.anthropic));
@@ -335,6 +564,29 @@ describe('requestProviderGrouping', () => {
       'https://api.deepseek.com/anthropic/v1/messages',
       expect.any(Object),
     );
+  });
+
+  it('caps completions on the OpenAI endpoint with the current API field', async () => {
+    const connection: ProviderConnection = {
+      apiKey: 'secret',
+      baseUrl: 'https://api.openai.com/v1',
+      modelId: 'o3',
+      providerId: 'openai-compatible',
+    };
+    const fetchMock = vi.fn<ProviderFetch>(async () => jsonResponse(responseByProvider['openai-compatible']));
+    await testProviderConnection(connection, fetchMock);
+    await requestProviderGrouping(
+      connection,
+      [{ id: 1, title: 'One', url: 'https://example.com/' }],
+      [],
+      'en',
+      fetchMock,
+    );
+
+    const [test, grouping] = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)));
+    expect(test.max_completion_tokens).toBe(16);
+    expect(grouping.max_completion_tokens).toBeGreaterThan(0);
+    expect(grouping).not.toHaveProperty('max_tokens');
   });
 
   it('instructs the provider to prefer existing groups and sends their context', async () => {

@@ -1,6 +1,7 @@
 import { OperationBusyError, OperationLock } from './operation-lock';
 import type {
   OperationKind,
+  ModelContextResult,
   RuntimeRequest,
   RuntimeResponse,
   ProviderConnectionTestResult,
@@ -12,7 +13,7 @@ import type {
   UndoExecutionResult,
   UngroupAllResult,
 } from '../core/types';
-import type { ProviderId, PublicSettings } from '../providers/types';
+import type { ProviderId, ProviderProfileUpdate, PublicSettings } from '../providers/types';
 
 export interface RuntimeControllerDependencies {
   closeDuplicates(windowId: number): Promise<DuplicateExecutionResult>;
@@ -28,12 +29,8 @@ export interface RuntimeControllerDependencies {
     profileId: string;
   }): Promise<PublicSettings>;
   saveModel(profileId: string, modelId: string): Promise<PublicSettings>;
-  saveProviderProfile(input: {
-    baseUrl: string;
-    name: string;
-    profileId: string;
-    providerId: ProviderId;
-  }): Promise<PublicSettings>;
+  resolveModelContext(profileId: string, modelId: string): Promise<ModelContextResult>;
+  saveProviderProfile(input: ProviderProfileUpdate): Promise<PublicSettings>;
   saveWorkflowPreference(enabled: boolean): Promise<PublicSettings>;
   setActiveProviderProfile(profileId: string): Promise<PublicSettings>;
   testProviderModel(profileId: string): Promise<ProviderConnectionTestResult>;
@@ -95,6 +92,7 @@ export class RuntimeController {
           return {
             data: await this.dependencies.saveProviderProfile({
               baseUrl: request.baseUrl,
+              ...(request.modelContext === undefined ? {} : { modelContext: request.modelContext }),
               name: request.name,
               profileId: request.profileId,
               providerId: request.providerId,
@@ -118,6 +116,11 @@ export class RuntimeController {
         case 'save-model':
           return {
             data: await this.dependencies.saveModel(request.profileId, request.modelId),
+            ok: true,
+          };
+        case 'resolve-model-context':
+          return {
+            data: await this.dependencies.resolveModelContext(request.profileId, request.modelId),
             ok: true,
           };
         case 'test-provider-model':
